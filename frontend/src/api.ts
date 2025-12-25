@@ -1,6 +1,4 @@
-import { SessionData, UploadResponse } from './types'
-
-type Peak = { time: number; value: number }
+import { Peak, PeakParams, SessionData, UploadResponse } from './types'
 
 type ReportResponse = { downloadUrl: string; filename: string }
 
@@ -44,24 +42,6 @@ export async function uploadFile(file: File): Promise<SessionData> {
   return payload.data
 }
 
-export async function detectPeaks(
-  pressureRows: SessionData['pressure'],
-  minHeight?: number,
-  minDistance?: number
-): Promise<Peak[]> {
-  const apiBase = getApiBase()
-  const url = new URL('/api/detect-peaks', apiBase).toString()
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pressure: pressureRows, min_height: minHeight, min_distance: minDistance }),
-  })
-
-  const payload = await handleJsonResponse<{ peaks: Peak[] }>(response)
-  return payload.peaks
-}
-
 export async function generateReport(
   data: Record<string, unknown>,
   peaks?: Peak[]
@@ -77,4 +57,40 @@ export async function generateReport(
 
   const payload = await handleJsonResponse<{ download_url: string; filename: string }>(response)
   return { downloadUrl: payload.download_url, filename: payload.filename }
+}
+
+export async function peaksSuggest(
+  pressureRows: SessionData['pressure'],
+  expectedCount: number,
+  searchBudget?: number
+): Promise<{
+  best: { params: PeakParams; peaks: Peak[]; score: number }
+  candidates: { params: PeakParams; peaks: Peak[]; score: number }[]
+}> {
+  const apiBase = getApiBase()
+  const url = new URL('/api/peaks/suggest', apiBase).toString()
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pressure: pressureRows, expectedCount, searchBudget }),
+  })
+
+  return handleJsonResponse(response)
+}
+
+export async function peaksRun(
+  pressureRows: SessionData['pressure'],
+  params: PeakParams
+): Promise<{ peaks: Peak[]; paramsUsed: PeakParams }> {
+  const apiBase = getApiBase()
+  const url = new URL('/api/peaks/run', apiBase).toString()
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pressure: pressureRows, params }),
+  })
+
+  return handleJsonResponse(response)
 }

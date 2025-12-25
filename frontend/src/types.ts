@@ -13,6 +13,21 @@ export type RowPressure = {
   "Bladder Pressure": number
 }
 
+export type Peak = {
+  time: number
+  value: number
+  index?: number
+  source: 'auto' | 'manual'
+}
+
+export type PeakParams = {
+  height?: number | null
+  threshold?: number | null
+  distance?: number | null
+  prominence?: number | null
+  width?: number | null
+}
+
 export type SessionData = {
   scale: RowScale[]
   volume: RowVolume[]
