@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { uploadFile, getApiBase, generateReport } from './api'
-import { Peak, PeakParams, SessionData } from './types'
+import { uploadFile, getApiBase, generateReport, deriveSegments } from './api'
+import { Peak, PeakParams, Segment, SegmentParams, SegmentPoint, SessionData } from './types'
 import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
 import TrimmerModal from './components/TrimmerModal'
 import { Interval, filterRowsByIntervals } from './lib/trimming'
@@ -9,7 +9,18 @@ import { StepUpload } from './steps/StepUpload'
 import { StepWindow } from './steps/StepWindow'
 import { StepAutoPeaks } from './steps/StepAutoPeaks'
 import { StepRefinePeaks } from './steps/StepRefinePeaks'
+import { StepSegments } from './steps/StepSegments'
 import { applyWindowToSessionData } from './lib/windowing'
+
+const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
+  onsetGradient: 0.5,
+  onsetPressureDrop: 5,
+  emptyPressureDrop: 2,
+  minAfterPeakSec: 10,
+  searchStartAfterPrevPeakSec: 50,
+  fallbackOnsetSec: 300,
+  fallbackEmptySec: 100,
+}
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -30,13 +41,22 @@ function App() {
   const [draftWindow, setDraftWindow] = useState<{ start: number; end: number } | null>(null)
   const [autoPeaks, setAutoPeaks] = useState<Peak[]>([])
   const [peaksConfirmed, setPeaksConfirmed] = useState<boolean>(false)
+  const [segmentParams, setSegmentParams] = useState<SegmentParams>({ ...DEFAULT_SEGMENT_PARAMS })
+  const [onsetPoints, setOnsetPoints] = useState<SegmentPoint[]>([])
+  const [emptyPoints, setEmptyPoints] = useState<SegmentPoint[]>([])
+  const [segments, setSegments] = useState<Segment[]>([])
+  const [isDerivingSegments, setIsDerivingSegments] = useState<boolean>(false)
+  const [segmentsError, setSegmentsError] = useState<string>('')
+  const [segmentsDerived, setSegmentsDerived] = useState<boolean>(false)
+  const [hasDerivedSegments, setHasDerivedSegments] = useState<boolean>(false)
 
   const steps = [
     { number: 1, label: 'Upload' },
     { number: 2, label: 'View & Select Data Range' },
     { number: 3, label: 'Auto Detect Peaks' },
     { number: 4, label: 'Refine Peaks' },
-    { number: 5, label: 'Download Data (placeholder for later)' },
+    { number: 5, label: 'Detect Onset / Empty' },
+    { number: 6, label: 'Download Data (placeholder for later)' },
   ]
 
   useEffect(() => {
@@ -67,11 +87,27 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  const clearSegmentResults = () => {
+    setOnsetPoints([])
+    setEmptyPoints([])
+    setSegments([])
+    setSegmentsError('')
+    setSegmentsDerived(false)
+    setHasDerivedSegments(false)
+    setIsDerivingSegments(false)
+  }
+
+  const resetSegmentsState = () => {
+    setSegmentParams({ ...DEFAULT_SEGMENT_PARAMS })
+    clearSegmentResults()
+  }
+
   const handleUpload = async (file: File) => {
     setSelectedFile(file)
     setIsUploading(true)
     setError('')
     setActionStatus('')
+    resetSegmentsState()
 
     try {
       const uploadedData = await uploadFile(file)
@@ -104,6 +140,7 @@ function App() {
       setDraftWindow(null)
       setAutoPeaks([])
       setPeaksConfirmed(false)
+      resetSegmentsState()
       return
     }
 
@@ -119,6 +156,7 @@ function App() {
       setDraftWindow(null)
       setAutoPeaks([])
       setPeaksConfirmed(false)
+      resetSegmentsState()
       return
     }
 
@@ -133,10 +171,12 @@ function App() {
     setDraftWindow(null)
     setAutoPeaks([])
     setPeaksConfirmed(false)
+    resetSegmentsState()
   }, [originalData, trims])
 
   useEffect(() => {
     setPeaksConfirmed(false)
+    clearSegmentResults()
   }, [peaks])
 
   const elapsedRange = useMemo(() => {
@@ -184,6 +224,10 @@ function App() {
     return applyWindowToSessionData(currentData, windowSelection.start, windowSelection.end)
   }, [currentData, windowSelection])
 
+  useEffect(() => {
+    clearSegmentResults()
+  }, [windowedCurrentData])
+
   const windowedScalePoints = useMemo(() => {
     if (!windowedCurrentData) return []
     return toPoints(windowedCurrentData.scale, 'Elapsed Time', 'Scale')
@@ -227,6 +271,11 @@ function App() {
   const scalePoints = useMemo(() => {
     if (!processedData) return []
     return toPoints(processedData.scale, 'Elapsed Time', 'Scale')
+  }, [processedData])
+
+  const volumePoints = useMemo(() => {
+    if (!processedData) return []
+    return toPoints(processedData.volume, 'Elapsed Time', 'Tot Infused Vol')
   }, [processedData])
 
 
@@ -301,6 +350,46 @@ function App() {
     setPeaksConfirmed(true)
   }
 
+  const handleDeriveSegments = async () => {
+    if (!windowedCurrentData) {
+      setSegmentsError('No data available to derive segments.')
+      setSegmentsDerived(false)
+      return
+    }
+    if (!peaksConfirmed) {
+      setSegmentsError('Please confirm peaks in the previous step.')
+      setSegmentsDerived(false)
+      return
+    }
+
+    setIsDerivingSegments(true)
+    setSegmentsError('')
+
+    try {
+      const result = await deriveSegments(windowedCurrentData, peaks, segmentParams)
+      setOnsetPoints(result.points.onset || [])
+      setEmptyPoints(result.points.empty || [])
+      setSegments(result.segments || [])
+      setSegmentsDerived(true)
+      setHasDerivedSegments(true)
+    } catch (err) {
+      setOnsetPoints([])
+      setEmptyPoints([])
+      setSegments([])
+      setSegmentsDerived(false)
+      setSegmentsError((err as Error).message)
+    } finally {
+      setIsDerivingSegments(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!hasDerivedSegments) return
+    if (!peaksConfirmed) return
+    if (isDerivingSegments) return
+    handleDeriveSegments()
+  }, [segmentParams])
+
   const handleNext = () => {
     setCurrentStep((prev) => Math.min(prev + 1, steps.length))
   }
@@ -326,6 +415,9 @@ function App() {
     if (currentStep === 4) {
       return !peaksConfirmed
     }
+    if (currentStep === 5) {
+      return !segmentsDerived
+    }
     return true
   }, [
     currentData,
@@ -334,6 +426,7 @@ function App() {
     originalData,
     peaks,
     peaksConfirmed,
+    segmentsDerived,
     windowSelection,
   ])
 
@@ -397,6 +490,27 @@ function App() {
           setPeaks={setPeaks}
           onConfirmPeaks={handleConfirmPeaks}
           peaksConfirmed={peaksConfirmed}
+        />
+      )
+    }
+
+    if (currentStep === 5) {
+      return (
+        <StepSegments
+          pressurePoints={pressurePoints}
+          scalePoints={scalePoints}
+          volumePoints={volumePoints}
+          peaks={peaks}
+          peaksConfirmed={peaksConfirmed}
+          onsetPoints={onsetPoints}
+          emptyPoints={emptyPoints}
+          segments={segments}
+          onDerive={handleDeriveSegments}
+          isDeriving={isDerivingSegments}
+          error={segmentsError}
+          segmentParams={segmentParams}
+          onSegmentParamsChange={setSegmentParams}
+          segmentsDerived={segmentsDerived}
         />
       )
     }

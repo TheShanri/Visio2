@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Point } from '../lib/series'
 
-type Marker = { x: number; y: number; label?: string }
+type Marker = {
+  x: number
+  y: number
+  label?: string
+  shape?: 'circle' | 'triangle' | 'square'
+  color?: string
+}
 
 type LineChartProps = {
   title: string
@@ -124,16 +130,26 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280, markers
       <g transform={`translate(${margin.left},${margin.top})`}>
         <path d={pathData} fill="none" stroke="#2563eb" strokeWidth={2} />
 
-        {markers.map((marker, idx) => (
-          <g key={`marker-${idx}`} transform={`translate(${xScale.scale(marker.x)},${yScale.scale(marker.y)})`}>
-            <circle r={4} fill="#dc2626" stroke="#fff" strokeWidth={1.5} />
-            {marker.label && (
-              <text x={8} y={4} fontSize={12} fill="#111">
-                {marker.label}
-              </text>
-            )}
-          </g>
-        ))}
+        {markers.map((marker, idx) => {
+          const color = marker.color || '#dc2626'
+          const shape = marker.shape || 'circle'
+          return (
+            <g key={`marker-${idx}`} transform={`translate(${xScale.scale(marker.x)},${yScale.scale(marker.y)})`}>
+              {shape === 'triangle' && (
+                <polygon points="0,-7 7,7 -7,7" fill={color} stroke="#fff" strokeWidth={1.5} />
+              )}
+              {shape === 'square' && (
+                <rect x={-5} y={-5} width={10} height={10} fill={color} stroke="#fff" strokeWidth={1.5} />
+              )}
+              {shape === 'circle' && <circle r={4.5} fill={color} stroke="#fff" strokeWidth={1.5} />}
+              {marker.label && (
+                <text x={8} y={4} fontSize={12} fill="#111">
+                  {marker.label}
+                </text>
+              )}
+            </g>
+          )
+        })}
 
         {/* Axes */}
         <line x1={0} y1={innerHeight} x2={innerWidth} y2={innerHeight} stroke="#111" />

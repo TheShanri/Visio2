@@ -37,3 +37,34 @@ export type SessionData = {
 export type UploadResponse = {
   data: SessionData
 }
+
+export type SegmentParams = {
+  onsetGradient?: number | null
+  onsetPressureDrop?: number | null
+  emptyPressureDrop?: number | null
+  minAfterPeakSec?: number | null
+  searchStartAfterPrevPeakSec?: number | null
+  fallbackOnsetSec?: number | null
+  fallbackEmptySec?: number | null
+}
+
+export type SegmentPoint = {
+  time: number
+  value: number
+  index?: number
+}
+
+export type SegmentMetrics = {
+  imiSec: number | null
+  maxPressure: number | null
+  avgPressureBetweenEmptyAndNextOnset: number | null
+  deltaVolume: number | null
+}
+
+export type Segment = {
+  i: number
+  onsetTime: number
+  peakTime: number
+  emptyTime: number
+  metrics: SegmentMetrics
+}
