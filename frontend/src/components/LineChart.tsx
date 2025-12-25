@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Point } from '../lib/series'
 
+type Marker = { x: number; y: number; label?: string }
+
 type LineChartProps = {
   title: string
   points: Point[]
   xLabel: string
   yLabel: string
   height?: number
+  markers?: Marker[]
 }
 
 type HoverState = {
@@ -32,7 +35,7 @@ function createLinearScale(domain: [number, number], range: [number, number]) {
   return { scale, invert }
 }
 
-export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineChartProps) {
+export function LineChart({ title, points, xLabel, yLabel, height = 280, markers = [] }: LineChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [width, setWidth] = useState<number>(640)
   const [hover, setHover] = useState<HoverState | null>(null)
@@ -121,6 +124,17 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
       <g transform={`translate(${margin.left},${margin.top})`}>
         <path d={pathData} fill="none" stroke="#2563eb" strokeWidth={2} />
 
+        {markers.map((marker, idx) => (
+          <g key={`marker-${idx}`} transform={`translate(${xScale.scale(marker.x)},${yScale.scale(marker.y)})`}>
+            <circle r={4} fill="#dc2626" stroke="#fff" strokeWidth={1.5} />
+            {marker.label && (
+              <text x={8} y={4} fontSize={12} fill="#111">
+                {marker.label}
+              </text>
+            )}
+          </g>
+        ))}
+
         {/* Axes */}
         <line x1={0} y1={innerHeight} x2={innerWidth} y2={innerHeight} stroke="#111" />
         <line x1={0} y1={0} x2={0} y2={innerHeight} stroke="#111" />
@@ -135,7 +149,7 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
               </text>
             </g>
           )
-          })}
+        })}
 
         {yTicks.map((tick, idx) => {
           const y = yScale.scale(tick)
