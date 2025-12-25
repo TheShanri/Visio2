@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 try:  # Optional dependency
     from scipy.signal import find_peaks  # type: ignore
@@ -58,3 +58,46 @@ def detect_peaks(
         indices = _fallback_peaks(values, min_height, min_distance)
 
     return [{"time": times[idx], "value": values[idx]} for idx in indices]
+
+
+def _clean_params(params: Dict[str, Optional[float]]) -> Tuple[Dict[str, float], Optional[float], Optional[int]]:
+    used_params: Dict[str, float] = {}
+    min_height: Optional[float] = None
+    min_distance: Optional[int] = None
+
+    for key in ("height", "threshold", "distance", "prominence", "width"):
+        value = params.get(key)
+        if value is None:
+            continue
+        if key == "distance":
+            min_distance = int(value)
+            used_params[key] = min_distance
+        else:
+            used_params[key] = float(value)
+            if key == "height":
+                min_height = used_params[key]
+
+    return used_params, min_height, min_distance
+
+
+def run_find_peaks(pressure_rows: List[PressureRow], params: Dict[str, Optional[float]]) -> Dict[str, object]:
+    times = [float(row.get("Elapsed Time", 0)) for row in pressure_rows]
+    values = [float(row.get("Bladder Pressure", 0)) for row in pressure_rows]
+
+    cleaned_params, min_height, min_distance = _clean_params(params)
+
+    if len(values) < 3:
+        return {"peaks": [], "paramsUsed": cleaned_params}
+
+    if find_peaks:
+        peak_indices, _ = find_peaks(values, **cleaned_params)  # type: ignore[arg-type]
+        indices = list(peak_indices)
+    else:
+        indices = _fallback_peaks(values, min_height, min_distance)
+
+    peaks = [
+        {"time": times[idx], "value": values[idx], "index": idx}
+        for idx in indices
+    ]
+
+    return {"peaks": peaks, "paramsUsed": cleaned_params}
