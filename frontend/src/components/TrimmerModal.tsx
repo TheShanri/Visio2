@@ -31,8 +31,8 @@ export function TrimmerModal({
   const hasSelection = pending.start !== undefined && pending.end !== undefined
 
   const selectionLabel = useMemo(() => {
-    if (!hasSelection) return ''
-    return `Selected: ${formatNumber(pending.start!)}s → ${formatNumber(pending.end!)}s`
+    if (!hasSelection) return 'Selected range to keep: —'
+    return `Selected range to keep: ${formatNumber(pending.start!)}s → ${formatNumber(pending.end!)}s`
   }, [hasSelection, pending.end, pending.start])
 
   const handleSelectX = (x: number) => {
@@ -89,7 +89,7 @@ export function TrimmerModal({
 
         <h2 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Pressure Trimmer</h2>
         <p style={{ marginTop: 0, color: '#444' }}>
-          Click the chart to mark a start point and then an end point for trimming. Use Apply to add the
+          Click the chart to mark a start point and then an end point for trimming. Use Apply to keep the
           interval.
         </p>
 
@@ -103,7 +103,7 @@ export function TrimmerModal({
           yLabel="Bladder Pressure"
         />
 
-        {selectionLabel && <p style={{ fontWeight: 600 }}>{selectionLabel}</p>}
+        <p style={{ fontWeight: 600, minHeight: '28px', marginTop: '0.5rem' }}>{selectionLabel}</p>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
           <button onClick={onApplyPending} disabled={!hasSelection}>
@@ -118,14 +118,14 @@ export function TrimmerModal({
         </div>
 
         <div style={{ marginTop: '1rem' }}>
-          <h3 style={{ marginBottom: '0.5rem' }}>Trim summary</h3>
+          <h3 style={{ marginBottom: '0.5rem' }}>Kept range summary</h3>
           {trims.length === 0 ? (
-            <p style={{ color: '#444' }}>No trims applied yet.</p>
+            <p style={{ color: '#444' }}>No ranges selected yet.</p>
           ) : (
             <ul style={{ paddingLeft: '1.25rem', margin: 0 }}>
               {trims.map((trim, idx) => (
                 <li key={`trim-${idx}`}>
-                  Trim {idx + 1}: {formatNumber(trim.start)}s–{formatNumber(trim.end)}s
+                  Selection {idx + 1}: {formatNumber(trim.start)}s–{formatNumber(trim.end)}s
                 </li>
               ))}
             </ul>
