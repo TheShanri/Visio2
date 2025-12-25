@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import bisect
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 PeakPoint = Dict[str, float]
 
 DEFAULT_PARAMS = {
-    "onsetGradient": 0.5,
-    "onsetPressureDrop": 5,
-    "emptyPressureDrop": 2,
+    "medianKernel": 7,
+    "maWindowSec": 0.6,
+    "derivativeWindowSec": 0.3,
+    "preWindowSec": 300,
+    "guardSec": 10,
+    "kNoise": 3.0,
+    "slopeThreshold": 0.02,
+    "sustainSec": 2.0,
     "minAfterPeakSec": 10,
-    "searchStartAfterPrevPeakSec": 50,
+    "postWindowSec": 250,
+    "dropSlopeThreshold": 0.08,
+    "flatSlopeThreshold": 0.01,
+    "flatToleranceKNoise": 2.0,
+    "dwellSec": 3.0,
     "fallbackOnsetSec": 300,
     "fallbackEmptySec": 100,
 }
@@ -55,13 +64,85 @@ def _average_between(times: List[float], values: List[float], start_time: float,
     return sum(segment_values) / len(segment_values)
 
 
-def _gradient(values: List[float], times: List[float], idx: int) -> float:
-    if idx <= 0 or idx >= len(values):
+def _median(values: Sequence[float]) -> float:
+    if not values:
         return 0.0
-    delta_t = times[idx] - times[idx - 1]
-    if delta_t == 0:
+    sorted_vals = sorted(values)
+    mid = len(sorted_vals) // 2
+    if len(sorted_vals) % 2 == 0:
+        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
+    return sorted_vals[mid]
+
+
+def _mad(values: Sequence[float]) -> float:
+    if not values:
         return 0.0
-    return (values[idx] - values[idx - 1]) / delta_t
+    med = _median(values)
+    deviations = [abs(v - med) for v in values]
+    return _median(deviations) * 1.4826
+
+
+def _median_filter(values: List[float], kernel: int) -> List[float]:
+    if kernel <= 1 or kernel % 2 == 0:
+        kernel = max(1, kernel | 1)
+    half = kernel // 2
+    padded = []
+    for idx in range(len(values)):
+        start = max(0, idx - half)
+        end = min(len(values), idx + half + 1)
+        window = values[start:end]
+        padded.append(_median(window))
+    return padded
+
+
+def _moving_average_by_time(times: List[float], values: List[float], window_sec: float) -> List[float]:
+    if not values or window_sec <= 0:
+        return list(values)
+    prefix = [0.0]
+    for v in values:
+        prefix.append(prefix[-1] + v)
+    result: List[float] = []
+    start = 0
+    half_window = window_sec / 2
+    for idx, t in enumerate(times):
+        while start < len(times) and t - times[start] > half_window:
+            start += 1
+        end = idx
+        while end + 1 < len(times) and times[end + 1] - t <= half_window:
+            end += 1
+        total = prefix[end + 1] - prefix[start]
+        count = max(1, end - start + 1)
+        result.append(total / count)
+    return result
+
+
+def _derivative(times: List[float], values: List[float], window_sec: float) -> List[float]:
+    if len(times) < 2:
+        return [0.0 for _ in times]
+    if window_sec <= 0:
+        window_sec = times[-1] - times[0]
+    half = window_sec / 2
+    deriv: List[float] = []
+    for idx, t in enumerate(times):
+        prev_idx = idx
+        while prev_idx > 0 and t - times[prev_idx] < half:
+            prev_idx -= 1
+        next_idx = idx
+        while next_idx + 1 < len(times) and times[next_idx] - t < half:
+            next_idx += 1
+        if prev_idx == next_idx:
+            if idx == 0:
+                prev_idx = 0
+                next_idx = 1
+            elif idx == len(times) - 1:
+                prev_idx = idx - 1
+                next_idx = idx
+        delta_t = times[next_idx] - times[prev_idx]
+        if delta_t <= 0:
+            deriv.append(0.0)
+        else:
+            deriv.append((values[next_idx] - values[prev_idx]) / delta_t)
+    return deriv
 
 
 def _clean_params(params: Optional[Dict[str, float]]) -> Dict[str, float]:
@@ -71,66 +152,107 @@ def _clean_params(params: Optional[Dict[str, float]]) -> Dict[str, float]:
     for key, value in params.items():
         if key in cleaned and isinstance(value, (int, float)):
             cleaned[key] = float(value)
+    # enforce odd kernel
+    kernel = int(round(cleaned["medianKernel"]))
+    if kernel % 2 == 0:
+        kernel += 1
+    cleaned["medianKernel"] = max(1, kernel)
     return cleaned
 
 
-def _find_onset_index(
-    peak_index: int,
-    peak_value: float,
+def _sustain_condition(
     times: List[float],
-    values: List[float],
-    search_start_time: float,
+    start_idx: int,
+    sustain_sec: float,
+    predicate,
+) -> bool:
+    end_time = times[start_idx] + sustain_sec
+    idx = start_idx
+    while idx < len(times) and times[idx] <= end_time:
+        if not predicate(idx):
+            return False
+        idx += 1
+    return True
+
+
+def _find_onset(
+    peak_idx: int,
+    times: List[float],
+    smoothed: List[float],
+    deriv: List[float],
     cfg: Dict[str, float],
 ) -> int:
-    start_idx = _nearest_index(times, min(search_start_time, times[peak_index]))
-    for idx in range(peak_index - 1, start_idx, -1):
-        grad = _gradient(values, times, idx)
-        drop = peak_value - values[idx]
-        if grad >= cfg["onsetGradient"] and drop >= cfg["onsetPressureDrop"]:
-            return idx
+    start_time = max(times[0], times[peak_idx] - cfg["preWindowSec"])
+    end_time = max(times[0], times[peak_idx] - cfg["guardSec"])
+    start_idx = _nearest_index(times, start_time)
+    end_idx = _nearest_index(times, end_time)
+    window_values = smoothed[start_idx : end_idx + 1]
+    baseline = _median(window_values)
+    noise = _mad(window_values)
+    threshold = baseline + cfg["kNoise"] * noise
 
-    fallback_time = max(times[start_idx], times[peak_index] - cfg["fallbackOnsetSec"])
-    fallback_idx = _nearest_index(times, fallback_time)
-    if fallback_idx >= peak_index:
-        fallback_idx = max(0, peak_index - 1)
-    return fallback_idx
-
-
-def _find_empty_index(
-    peak_index: int,
-    peak_value: float,
-    times: List[float],
-    values: List[float],
-    min_search_time: float,
-    end_limit_time: float,
-    cfg: Dict[str, float],
-    onset_index: int,
-) -> int:
-    start_idx = _nearest_index(times, min_search_time)
-    if start_idx <= peak_index and peak_index + 1 < len(times):
-        start_idx = peak_index + 1
-
-    end_idx = _nearest_index(times, end_limit_time)
-    if end_idx <= start_idx:
-        end_idx = len(times) - 1
-
-    for idx in range(start_idx, max(end_idx, start_idx) + 1):
-        drop = peak_value - values[idx]
-        if drop < cfg["emptyPressureDrop"]:
+    for idx in range(start_idx, end_idx + 1):
+        if smoothed[idx] <= threshold:
             continue
-        prev_grad = _gradient(values, times, idx)
-        next_grad = _gradient(values, times, min(idx + 1, len(values) - 1))
-        if prev_grad < 0 <= next_grad:
+        if deriv[idx] <= cfg["slopeThreshold"]:
+            continue
+        if _sustain_condition(
+            times,
+            idx,
+            cfg["sustainSec"],
+            lambda j: smoothed[j] > threshold and deriv[j] > cfg["slopeThreshold"],
+        ):
             return idx
 
-    fallback_time = min(times[-1], times[peak_index] + cfg["fallbackEmptySec"])
-    if fallback_time <= times[onset_index]:
-        fallback_time = min(times[-1], times[onset_index] + max(cfg["minAfterPeakSec"], 1))
+    fallback_time = max(times[0], times[peak_idx] - cfg["fallbackOnsetSec"])
+    return _nearest_index(times, fallback_time)
+
+
+def _find_empty(
+    peak_idx: int,
+    times: List[float],
+    smoothed: List[float],
+    deriv: List[float],
+    cfg: Dict[str, float],
+) -> int:
+    start_time = times[peak_idx] + cfg["minAfterPeakSec"]
+    end_time = times[peak_idx] + cfg["postWindowSec"]
+    start_idx = _nearest_index(times, start_time)
+    end_idx = _nearest_index(times, end_time)
+    drop_idx = start_idx
+    for idx in range(start_idx, end_idx + 1):
+        if deriv[idx] < -cfg["dropSlopeThreshold"]:
+            drop_idx = idx
+            break
+
+    post_values = smoothed[drop_idx : end_idx + 1]
+    baseline_post = _median(post_values)
+    noise_post = _mad(post_values)
+
+    def _flat_pred(j: int) -> bool:
+        return (
+            abs(deriv[j]) < cfg["flatSlopeThreshold"]
+            and abs(smoothed[j] - baseline_post) < cfg["flatToleranceKNoise"] * noise_post
+        )
+
+    for idx in range(drop_idx, end_idx + 1):
+        if not _flat_pred(idx):
+            continue
+        if _sustain_condition(times, idx, cfg["dwellSec"], _flat_pred):
+            return idx
+
+    # fallback: min pressure in window
+    if end_idx >= start_idx:
+        window = smoothed[start_idx : end_idx + 1]
+        min_val = min(window)
+        local_idx = window.index(min_val)
+        min_idx = start_idx + local_idx
+    else:
+        min_idx = peak_idx
+    fallback_time = times[peak_idx] + cfg["fallbackEmptySec"]
     fallback_idx = _nearest_index(times, fallback_time)
-    if fallback_idx <= peak_index and peak_index + 1 < len(times):
-        fallback_idx = peak_index + 1
-    if fallback_idx <= onset_index and onset_index + 1 < len(times):
-        fallback_idx = onset_index + 1
+    if start_idx <= min_idx <= end_idx:
+        return min_idx
     return fallback_idx
 
 
@@ -150,6 +272,11 @@ def derive_segments(
     if not times or not peaks:
         return {"points": {"onset": [], "peak": [], "empty": []}, "segments": []}
 
+    smoothed = _moving_average_by_time(
+        times, _median_filter(pressures, int(cfg["medianKernel"])), cfg["maWindowSec"]
+    )
+    derivatives = _derivative(times, smoothed, cfg["derivativeWindowSec"])
+
     ordered_peaks = sorted(peaks, key=lambda p: p.get("time", 0))
     onset_points = []
     peak_points = []
@@ -161,52 +288,32 @@ def derive_segments(
         peak_time = times[peak_index]
         peak_value = pressures[peak_index]
 
-        search_start_time = times[0]
-        if idx > 0:
-            search_start_time = ordered_peaks[idx - 1].get("time", times[0]) + cfg[
-                "searchStartAfterPrevPeakSec"
-            ]
-
-        onset_index = _find_onset_index(
-            peak_index, peak_value, times, pressures, search_start_time, cfg
-        )
+        onset_index = _find_onset(peak_index, times, smoothed, derivatives, cfg)
         onset_time = times[onset_index]
         onset_value = pressures[onset_index]
 
-        min_empty_time = peak_time + cfg["minAfterPeakSec"]
-        end_limit_time = (
-            ordered_peaks[idx + 1].get("time", times[-1])
-            if idx + 1 < len(ordered_peaks)
-            else times[-1]
-        )
-        empty_index = _find_empty_index(
-            peak_index,
-            peak_value,
-            times,
-            pressures,
-            min_empty_time,
-            end_limit_time,
-            cfg,
-            onset_index,
-        )
+        empty_index = _find_empty(peak_index, times, smoothed, derivatives, cfg)
         empty_time = times[empty_index]
         empty_value = pressures[empty_index]
 
         # Enforce ordering strictly
-        if onset_time >= peak_time and onset_index < peak_index:
-            onset_index = max(0, peak_index - 1)
+        if onset_time >= peak_time:
+            fallback_time = max(times[0], peak_time - cfg["fallbackOnsetSec"])
+            onset_index = _nearest_index(times, fallback_time)
             onset_time = times[onset_index]
             onset_value = pressures[onset_index]
 
-        if empty_time <= peak_time and peak_index + 1 < len(times):
-            empty_index = peak_index + 1
+        if empty_time <= peak_time:
+            fallback_time = peak_time + cfg["fallbackEmptySec"]
+            empty_index = _nearest_index(times, fallback_time)
             empty_time = times[empty_index]
             empty_value = pressures[empty_index]
 
-        if empty_time <= onset_time and onset_index + 1 < len(times):
-            empty_index = onset_index + 1
-            empty_time = times[empty_index]
-            empty_value = pressures[empty_index]
+        if empty_time <= onset_time:
+            fallback_time = onset_time + max(cfg["minAfterPeakSec"], cfg["dwellSec"])
+            empty_index = _nearest_index(times, fallback_time)
+            empty_time = times[min(empty_index, len(times) - 1)]
+            empty_value = pressures[min(empty_index, len(pressures) - 1)]
 
         peak_points.append({"time": peak_time, "value": peak_value, "index": peak_index})
         onset_points.append(
