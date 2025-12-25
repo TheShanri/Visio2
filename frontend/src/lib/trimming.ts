@@ -2,20 +2,12 @@ import { RowPressure } from '../types'
 
 export type Interval = { start: number; end: number }
 
-export function applyTrims(originalPressureRows: RowPressure[], trims: Interval[]): RowPressure[] {
-  const sortedRows = [...originalPressureRows].sort(
-    (a, b) => a['Elapsed Time'] - b['Elapsed Time']
-  )
-
-  if (trims.length === 0) {
-    return sortedRows
-  }
-
-  const normalizedTrims = trims.map(({ start, end }) =>
+function normalizeIntervals(intervals: Interval[]): Interval[] {
+  const normalizedTrims = intervals.map(({ start, end }) =>
     start <= end ? { start, end } : { start: end, end: start }
   )
 
-  const mergedTrims = normalizedTrims
+  return normalizedTrims
     .sort((a, b) => a.start - b.start)
     .reduce<Interval[]>((acc, interval) => {
       const last = acc[acc.length - 1]
@@ -33,12 +25,31 @@ export function applyTrims(originalPressureRows: RowPressure[], trims: Interval[
 
       return acc
     }, [])
+}
 
-  return sortedRows.filter((row) => {
-    const elapsed = row['Elapsed Time']
-    const isWithinTrim = mergedTrims.some(
-      (interval) => elapsed >= interval.start && elapsed <= interval.end
-    )
-    return isWithinTrim
-  })
+export function filterRowsByIntervals<T extends { [k: string]: any }>(
+  rows: T[],
+  timeKey: keyof T,
+  intervals: Interval[]
+): T[] {
+  const sortedRows = [...rows].sort((a, b) => Number(a[timeKey]) - Number(b[timeKey]))
+
+  if (intervals.length === 0) {
+    return sortedRows.map((row) => ({ ...row }))
+  }
+
+  const mergedTrims = normalizeIntervals(intervals)
+
+  return sortedRows
+    .filter((row) => {
+      const elapsed = Number(row[timeKey])
+      return mergedTrims.some(
+        (interval) => elapsed >= interval.start && elapsed <= interval.end
+      )
+    })
+    .map((row) => ({ ...row }))
+}
+
+export function applyTrims(originalPressureRows: RowPressure[], trims: Interval[]): RowPressure[] {
+  return filterRowsByIntervals<RowPressure>(originalPressureRows, 'Elapsed Time', trims)
 }

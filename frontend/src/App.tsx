@@ -5,7 +5,7 @@ import { LineChart } from './components/LineChart'
 import { SummaryCards } from './components/SummaryCards'
 import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
 import TrimmerModal from './components/TrimmerModal'
-import { Interval, applyTrims } from './lib/trimming'
+import { Interval, filterRowsByIntervals } from './lib/trimming'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -83,10 +83,19 @@ function App() {
       return
     }
 
+    if (trims.length === 0) {
+      setCurrentData({
+        scale: originalData.scale.map((row) => ({ ...row })),
+        volume: originalData.volume.map((row) => ({ ...row })),
+        pressure: originalData.pressure.map((row) => ({ ...row })),
+      })
+      return
+    }
+
     setCurrentData({
-      scale: originalData.scale,
-      volume: originalData.volume,
-      pressure: applyTrims(originalData.pressure, trims),
+      scale: filterRowsByIntervals(originalData.scale, 'Elapsed Time', trims),
+      volume: filterRowsByIntervals(originalData.volume, 'Elapsed Time', trims),
+      pressure: filterRowsByIntervals(originalData.pressure, 'Elapsed Time', trims),
     })
   }, [originalData, trims])
 
