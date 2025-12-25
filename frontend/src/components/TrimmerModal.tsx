@@ -32,7 +32,7 @@ export function TrimmerModal({
 
   const selectionLabel = useMemo(() => {
     if (!hasSelection) return ''
-    return `Selected range to keep: ${formatNumber(pending.start!)}s → ${formatNumber(pending.end!)}s`
+    return `Selected: ${formatNumber(pending.start!)}s → ${formatNumber(pending.end!)}s`
   }, [hasSelection, pending.end, pending.start])
 
   const handleSelectX = (x: number) => {
@@ -89,8 +89,8 @@ export function TrimmerModal({
 
         <h2 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Pressure Trimmer</h2>
         <p style={{ marginTop: 0, color: '#444' }}>
-          Click the chart to mark a start point and then an end point for a range to keep. Use Apply to
-          keep the interval.
+          Click the chart to mark a start point and then an end point for trimming. Use Apply to add the
+          interval.
         </p>
 
         <InteractiveLineChart
@@ -118,9 +118,9 @@ export function TrimmerModal({
         </div>
 
         <div style={{ marginTop: '1rem' }}>
-          <h3 style={{ marginBottom: '0.5rem' }}>Kept range summary</h3>
+          <h3 style={{ marginBottom: '0.5rem' }}>Trim summary</h3>
           {trims.length === 0 ? (
-            <p style={{ color: '#444' }}>No kept ranges yet.</p>
+            <p style={{ color: '#444' }}>No trims applied yet.</p>
           ) : (
             <ul style={{ paddingLeft: '1.25rem', margin: 0 }}>
               {trims.map((trim, idx) => (
