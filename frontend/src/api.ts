@@ -1,4 +1,4 @@
-import { Peak, PeakParams, SessionData, UploadResponse } from './types'
+import { Peak, PeakParams, Segment, SegmentParams, SegmentPoint, SessionData, UploadResponse } from './types'
 
 type ReportResponse = { downloadUrl: string; filename: string }
 
@@ -90,6 +90,23 @@ export async function peaksRun(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pressure: pressureRows, params }),
+  })
+
+  return handleJsonResponse(response)
+}
+
+export async function deriveSegments(
+  data: SessionData,
+  peaks: Peak[],
+  params: SegmentParams,
+): Promise<{ points: { onset: SegmentPoint[]; peak: SegmentPoint[]; empty: SegmentPoint[] }; segments: Segment[] }> {
+  const apiBase = getApiBase()
+  const url = new URL('/api/segments/derive', apiBase).toString()
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data, peaks, params }),
   })
 
   return handleJsonResponse(response)
