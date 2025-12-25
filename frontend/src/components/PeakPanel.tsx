@@ -10,6 +10,7 @@ type PeakPanelProps = {
   setParams: (params: PeakParams | null) => void
   peaks: Peak[]
   setPeaks: (peaks: Peak[]) => void
+  onDetect?: (source: 'auto' | 'manual') => void
 }
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
@@ -17,7 +18,7 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
   return Number.isFinite(value) ? value.toFixed(digits) : ''
 }
 
-function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks }: PeakPanelProps) {
+function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect }: PeakPanelProps) {
   const [expectedCount, setExpectedCount] = useState<number | ''>(3)
   const [isSuggesting, setIsSuggesting] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
@@ -59,6 +60,7 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks }: PeakPan
       const suggestion = await peaksSuggest(pressureRows!, Number(expectedCount))
       setParams(suggestion.best.params ?? {})
       setPeaks((suggestion.best.peaks ?? []).map((peak) => ({ ...peak, source: 'auto' as const })))
+      onDetect?.('auto')
       setCandidates(suggestion.candidates ?? [])
       setMessage(`Auto-tuned. Best candidate found ${suggestion.best.peaks?.length ?? 0} peaks.`)
     } catch (err) {
@@ -81,6 +83,7 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks }: PeakPan
     try {
       const result = await peaksRun(pressureRows!, paramsState)
       setPeaks((result.peaks ?? []).map((peak) => ({ ...peak, source: 'manual' as const })))
+      onDetect?.('manual')
       setMessage(`Detected ${result.peaks?.length ?? 0} peaks with current parameters.`)
     } catch (err) {
       setError((err as Error).message)
