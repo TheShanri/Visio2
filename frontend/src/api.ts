@@ -1,6 +1,25 @@
-import { Peak, PeakParams, Segment, SegmentParams, SegmentPoint, SessionData, UploadResponse } from './types'
+import {
+  ExperimentWindow,
+  Peak,
+  PeakParams,
+  Segment,
+  SegmentParams,
+  SegmentPoint,
+  SessionData,
+  UploadResponse,
+} from './types'
 
 type ReportResponse = { downloadUrl: string; filename: string }
+
+type ReportPayload = {
+  data: SessionData
+  peaks: Peak[]
+  points: { onset: SegmentPoint[]; empty: SegmentPoint[] }
+  segments: Segment[]
+  peakParams?: PeakParams | null
+  segmentParams?: SegmentParams
+  experimentWindow?: ExperimentWindow | null
+}
 
 export function getApiBase(): string {
   const apiBase = import.meta.env.VITE_API_URL
@@ -42,17 +61,22 @@ export async function uploadFile(file: File): Promise<SessionData> {
   return payload.data
 }
 
-export async function generateReport(
-  data: Record<string, unknown>,
-  peaks?: Peak[]
-): Promise<ReportResponse> {
+export async function generateReport(payload: ReportPayload): Promise<ReportResponse> {
   const apiBase = getApiBase()
   const url = new URL('/api/generate-report', apiBase).toString()
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data, peaks }),
+    body: JSON.stringify({
+      data: payload.data,
+      peaks: payload.peaks,
+      points: payload.points,
+      segments: payload.segments,
+      peakParams: payload.peakParams,
+      segmentParams: payload.segmentParams,
+      experimentWindow: payload.experimentWindow,
+    }),
   })
 
   const payload = await handleJsonResponse<{ download_url: string; filename: string }>(response)

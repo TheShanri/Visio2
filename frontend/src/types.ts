@@ -20,6 +20,8 @@ export type Peak = {
   source: 'auto' | 'manual'
 }
 
+export type ExperimentWindow = { start: number; end: number }
+
 export type PeakParams = {
   height?: number | null
   threshold?: number | null

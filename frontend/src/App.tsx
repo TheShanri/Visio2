@@ -10,6 +10,7 @@ import { StepWindow } from './steps/StepWindow'
 import { StepAutoPeaks } from './steps/StepAutoPeaks'
 import { StepRefinePeaks } from './steps/StepRefinePeaks'
 import { StepSegments } from './steps/StepSegments'
+import { StepDownload } from './steps/StepDownload'
 import { applyWindowToSessionData } from './lib/windowing'
 
 const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
@@ -66,7 +67,7 @@ function App() {
     { number: 3, label: 'Auto Detect Peaks' },
     { number: 4, label: 'Refine Peaks' },
     { number: 5, label: 'Detect Onset / Empty' },
-    { number: 6, label: 'Download Data (placeholder for later)' },
+    { number: 6, label: 'Download Data' },
   ]
 
   useEffect(() => {
@@ -315,18 +316,26 @@ function App() {
   }
 
   const handleExportReport = async () => {
-    if (!currentData) return
+    if (!windowedCurrentData) {
+      setActionStatus('No data available to export.')
+      return
+    }
 
     setIsExporting(true)
     setActionStatus('Generating report...')
 
     const payload = {
-      ...currentData,
-      kept_intervals: trims.length > 0 ? trims.length : undefined,
+      data: windowedCurrentData,
+      peaks,
+      points: { onset: onsetPoints, empty: emptyPoints },
+      segments,
+      peakParams,
+      segmentParams,
+      experimentWindow,
     }
 
     try {
-      const report = await generateReport(payload, peaks)
+      const report = await generateReport(payload)
       const apiBase = getApiBase()
       const downloadUrl = `${apiBase}${report.downloadUrl}`
       setActionStatus(`Report ready: ${report.filename}`)
@@ -551,10 +560,15 @@ function App() {
     }
 
     return (
-      <div>
-        <h2 style={{ marginTop: 0 }}>Download Data (placeholder for later)</h2>
-        <p>This step is reserved for upcoming download options.</p>
-      </div>
+      <StepDownload
+        fileName={selectedFile?.name ?? null}
+        experimentWindow={experimentWindow}
+        peaks={peaks}
+        segments={segments}
+        isExporting={isExporting}
+        actionStatus={actionStatus}
+        onDownload={handleExportReport}
+      />
     )
   }
 
