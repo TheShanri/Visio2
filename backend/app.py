@@ -7,6 +7,7 @@ from flask_cors import CORS
 from services import (
     create_report,
     detect_peaks,
+    derive_segments,
     process_uploaded_data,
     run_find_peaks,
     suggest_params,
@@ -66,6 +67,68 @@ def _validate_peak_params(params):
             return None, f"{key} must be a number or null"
         cleaned[key] = value
 
+    return cleaned, None
+
+
+def _validate_series(rows, time_key: str, value_key: str, allow_none: bool = True):
+    if rows is None:
+        return allow_none
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if not isinstance(row, dict):
+            return False
+        if time_key not in row or value_key not in row:
+            return False
+        try:
+            float(row[time_key])
+            float(row[value_key])
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _validate_peaks(peaks):
+    if not isinstance(peaks, list):
+        return False
+    for peak in peaks:
+        if not isinstance(peak, dict):
+            return False
+        if "time" not in peak or "value" not in peak:
+            return False
+        try:
+            float(peak["time"])
+            float(peak["value"])
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _validate_segment_params(params):
+    if params is None:
+        return {}, None
+    if not isinstance(params, dict):
+        return None, "params must be an object"
+
+    allowed = {
+        "onsetGradient",
+        "onsetPressureDrop",
+        "emptyPressureDrop",
+        "minAfterPeakSec",
+        "searchStartAfterPrevPeakSec",
+        "fallbackOnsetSec",
+        "fallbackEmptySec",
+    }
+
+    cleaned = {}
+    for key, value in params.items():
+        if key not in allowed:
+            return None, f"Unknown parameter: {key}"
+        if value is None:
+            continue
+        if not isinstance(value, (int, float)):
+            return None, f"{key} must be a number or null"
+        cleaned[key] = float(value)
     return cleaned, None
 
 
@@ -138,6 +201,44 @@ def suggest_peaks_route():
 
     suggestion = suggest_params(pressure, int(expected_count), budget)
     return jsonify(to_jsonable(suggestion))
+
+
+@app.route("/api/segments/derive", methods=["POST"])
+def derive_segments_route():
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON body"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    data = payload.get("data")
+    peaks = payload.get("peaks")
+    params_raw = payload.get("params")
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "data must be an object"}), 400
+
+    pressure_rows = data.get("pressure")
+    scale_rows = data.get("scale")
+    volume_rows = data.get("volume")
+
+    if not _validate_series(pressure_rows, "Elapsed Time", "Bladder Pressure", allow_none=False):
+        return jsonify({"error": "Invalid or missing pressure data"}), 400
+    if not _validate_series(scale_rows, "Elapsed Time", "Scale"):
+        return jsonify({"error": "Invalid scale data"}), 400
+    if not _validate_series(volume_rows, "Elapsed Time", "Tot Infused Vol"):
+        return jsonify({"error": "Invalid volume data"}), 400
+    if not _validate_peaks(peaks):
+        return jsonify({"error": "Invalid or missing peaks"}), 400
+
+    params, error = _validate_segment_params(params_raw)
+    if error:
+        return jsonify({"error": error}), 400
+
+    result = derive_segments(
+        {"pressure": pressure_rows, "scale": scale_rows, "volume": volume_rows},
+        peaks,
+        params,
+    )
+    return jsonify(to_jsonable(result))
 
 
 @app.route("/api/generate-report", methods=["POST"])
