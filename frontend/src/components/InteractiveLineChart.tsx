@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Point } from '../lib/series'
 
-type LineChartProps = {
-  title: string
+export type InteractiveLineChartProps = {
   points: Point[]
-  xLabel: string
-  yLabel: string
+  selectedStart?: number
+  selectedEnd?: number
+  onSelectX: (x: number) => void
   height?: number
-}
-
-type HoverState = {
-  point: Point
-  screenX: number
-  screenY: number
+  title?: string
+  xLabel?: string
+  yLabel?: string
 }
 
 function generateTicks(min: number, max: number, count = 6): number[] {
@@ -32,10 +29,18 @@ function createLinearScale(domain: [number, number], range: [number, number]) {
   return { scale, invert }
 }
 
-export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineChartProps) {
+export function InteractiveLineChart({
+  points,
+  selectedStart,
+  selectedEnd,
+  onSelectX,
+  height = 320,
+  title = 'Interactive Chart',
+  xLabel = 'Elapsed Time (s)',
+  yLabel = 'Value',
+}: InteractiveLineChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [width, setWidth] = useState<number>(640)
-  const [hover, setHover] = useState<HoverState | null>(null)
 
   const sortedPoints = useMemo(() => [...points].sort((a, b) => a.x - b.x), [points])
 
@@ -94,7 +99,7 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
   const xTicks = generateTicks(xMin, xMax)
   const yTicks = generateTicks(yMin - yPadding, yMax + yPadding)
 
-  const handleMouseMove = (event: React.MouseEvent<SVGRectElement, MouseEvent>) => {
+  const handleClick = (event: React.MouseEvent<SVGRectElement, MouseEvent>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const mx = event.clientX - rect.left
     const dataX = xScale.invert(mx)
@@ -109,17 +114,48 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
       }
     }
 
-    setHover({
-      point: nearest,
-      screenX: xScale.scale(nearest.x),
-      screenY: yScale.scale(nearest.y),
-    })
+    onSelectX(nearest.x)
   }
 
   return (
     <svg ref={svgRef} role="img" aria-label={title} style={{ width: '100%', height }}>
       <g transform={`translate(${margin.left},${margin.top})`}>
         <path d={pathData} fill="none" stroke="#2563eb" strokeWidth={2} />
+
+        {selectedStart !== undefined && selectedEnd !== undefined && (
+          <rect
+            x={xScale.scale(Math.min(selectedStart, selectedEnd))}
+            y={0}
+            width={Math.abs(xScale.scale(selectedEnd) - xScale.scale(selectedStart))}
+            height={innerHeight}
+            fill="#c7d2fe"
+            opacity={0.3}
+          />
+        )}
+
+        {selectedStart !== undefined && (
+          <line
+            x1={xScale.scale(selectedStart)}
+            x2={xScale.scale(selectedStart)}
+            y1={0}
+            y2={innerHeight}
+            stroke="#f97316"
+            strokeDasharray="4 4"
+            strokeWidth={2}
+          />
+        )}
+
+        {selectedEnd !== undefined && (
+          <line
+            x1={xScale.scale(selectedEnd)}
+            x2={xScale.scale(selectedEnd)}
+            y1={0}
+            y2={innerHeight}
+            stroke="#10b981"
+            strokeDasharray="4 4"
+            strokeWidth={2}
+          />
+        )}
 
         {/* Axes */}
         <line x1={0} y1={innerHeight} x2={innerWidth} y2={innerHeight} stroke="#111" />
@@ -135,7 +171,7 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
               </text>
             </g>
           )
-          })}
+        })}
 
         {yTicks.map((tick, idx) => {
           const y = yScale.scale(tick)
@@ -163,27 +199,14 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
           {yLabel}
         </text>
 
-        {/* Hover feedback */}
-        {hover && (
-          <g transform={`translate(${hover.screenX},${hover.screenY})`}>
-            <circle r={4} fill="#dc2626" stroke="#fff" strokeWidth={1.5} />
-            <g transform="translate(10,-10)">
-              <rect x={0} y={-18} width={140} height={24} rx={4} ry={4} fill="#111" opacity={0.8} />
-              <text x={8} y={-2} fill="#fff" fontSize={12}>
-                {hover.point.x.toFixed(2)}, {hover.point.y.toFixed(2)}
-              </text>
-            </g>
-          </g>
-        )}
-
         <rect
           x={0}
           y={0}
           width={innerWidth}
           height={innerHeight}
           fill="transparent"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHover(null)}
+          style={{ cursor: 'crosshair' }}
+          onClick={handleClick}
         />
       </g>
       <text x={margin.left} y={margin.top / 1.5} fontSize={16} fontWeight={600}>
@@ -193,4 +216,4 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
   )
 }
 
-export default LineChart
+export default InteractiveLineChart
