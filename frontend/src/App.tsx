@@ -28,7 +28,7 @@ function App() {
   const [currentStep, setCurrentStep] = useState<number>(1)
   const [experimentWindow, setExperimentWindow] = useState<{ start: number; end: number } | null>(null)
   const [draftWindow, setDraftWindow] = useState<{ start: number; end: number } | null>(null)
-  const [autoDetectionAcknowledged, setAutoDetectionAcknowledged] = useState<boolean>(false)
+  const [autoPeaks, setAutoPeaks] = useState<Peak[]>([])
   const [peaksConfirmed, setPeaksConfirmed] = useState<boolean>(false)
 
   const steps = [
@@ -102,7 +102,7 @@ function App() {
       setPeaks([])
       setExperimentWindow(null)
       setDraftWindow(null)
-      setAutoDetectionAcknowledged(false)
+      setAutoPeaks([])
       setPeaksConfirmed(false)
       return
     }
@@ -117,7 +117,7 @@ function App() {
       setPeaks([])
       setExperimentWindow(null)
       setDraftWindow(null)
-      setAutoDetectionAcknowledged(false)
+      setAutoPeaks([])
       setPeaksConfirmed(false)
       return
     }
@@ -131,7 +131,7 @@ function App() {
     setPeaks([])
     setExperimentWindow(null)
     setDraftWindow(null)
-    setAutoDetectionAcknowledged(false)
+    setAutoPeaks([])
     setPeaksConfirmed(false)
   }, [originalData, trims])
 
@@ -219,18 +219,6 @@ function App() {
     return windowedCurrentData
   }, [currentData, experimentWindow, windowedCurrentData])
 
-  const pressurePreview = useMemo(() => processedData?.pressure.slice(0, 5) ?? [], [processedData])
-
-  const scalePoints = useMemo(() => {
-    if (!processedData) return []
-    return toPoints(processedData.scale, 'Elapsed Time', 'Scale')
-  }, [processedData])
-
-  const volumePoints = useMemo(() => {
-    if (!processedData) return []
-    return toPoints(processedData.volume, 'Elapsed Time', 'Tot Infused Vol')
-  }, [processedData])
-
   const pressurePoints = useMemo(() => {
     if (!processedData) return []
     return toPoints(processedData.pressure, 'Elapsed Time', 'Bladder Pressure')
@@ -304,14 +292,6 @@ function App() {
     setDraftWindow({ start: Math.min(clampedStart, clampedEnd), end: Math.max(clampedStart, clampedEnd) })
   }
 
-  const handleAutoDetect = () => {
-    setAutoDetectionAcknowledged(true)
-  }
-
-  const handleSkipAuto = () => {
-    setAutoDetectionAcknowledged(true)
-  }
-
   const handleConfirmPeaks = () => {
     setPeaksConfirmed(true)
   }
@@ -336,18 +316,18 @@ function App() {
       )
     }
     if (currentStep === 3) {
-      return !autoDetectionAcknowledged
+      return peaks.length === 0
     }
     if (currentStep === 4) {
       return !peaksConfirmed
     }
     return true
   }, [
-    autoDetectionAcknowledged,
     currentData,
     currentStep,
     experimentWindow,
     originalData,
+    peaks,
     peaksConfirmed,
     windowSelection,
   ])
@@ -391,14 +371,13 @@ function App() {
     if (currentStep === 3) {
       return (
         <StepAutoPeaks
-          pressureRows={processedData?.pressure ?? null}
+          pressureRows={windowedCurrentData?.pressure ?? null}
+          scaleRows={windowedCurrentData?.scale ?? null}
           peakParams={peakParams}
           peaks={peaks}
-          onDetect={handleAutoDetect}
-          onSkip={handleSkipAuto}
-          hasAcknowledged={autoDetectionAcknowledged}
           setPeakParams={setPeakParams}
           setPeaks={setPeaks}
+          setAutoPeaks={setAutoPeaks}
         />
       )
     }
@@ -406,12 +385,10 @@ function App() {
     if (currentStep === 4) {
       return (
         <StepRefinePeaks
-          scalePoints={scalePoints}
-          volumePoints={volumePoints}
           pressurePoints={pressurePoints}
           peaks={peaks}
+          autoPeaks={autoPeaks}
           setPeaks={setPeaks}
-          pressurePreview={pressurePreview}
           onConfirmPeaks={handleConfirmPeaks}
           peaksConfirmed={peaksConfirmed}
         />
