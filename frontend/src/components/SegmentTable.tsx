@@ -38,9 +38,9 @@ export function SegmentTable({ segments }: SegmentTableProps) {
                   <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem', textAlign: 'center' }}>
                     {segment.i + 1}
                   </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{segment.onsetTime.toFixed(2)}</td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{segment.peakTime.toFixed(2)}</td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{segment.emptyTime.toFixed(2)}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{formatNumber(segment.onsetTime)}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{formatNumber(segment.peakTime)}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{formatNumber(segment.emptyTime)}</td>
                   <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>
                     {formatNumber(segment.metrics.imiSec)}
                   </td>

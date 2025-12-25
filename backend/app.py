@@ -111,11 +111,20 @@ def _validate_segment_params(params):
         return None, "params must be an object"
 
     allowed = {
-        "onsetGradient",
-        "onsetPressureDrop",
-        "emptyPressureDrop",
+        "medianKernel",
+        "maWindowSec",
+        "derivativeWindowSec",
+        "preWindowSec",
+        "guardSec",
+        "kNoise",
+        "slopeThreshold",
+        "sustainSec",
         "minAfterPeakSec",
-        "searchStartAfterPrevPeakSec",
+        "postWindowSec",
+        "dropSlopeThreshold",
+        "flatSlopeThreshold",
+        "flatToleranceKNoise",
+        "dwellSec",
         "fallbackOnsetSec",
         "fallbackEmptySec",
     }

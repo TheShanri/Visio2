@@ -13,11 +13,20 @@ import { StepSegments } from './steps/StepSegments'
 import { applyWindowToSessionData } from './lib/windowing'
 
 const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
-  onsetGradient: 0.5,
-  onsetPressureDrop: 5,
-  emptyPressureDrop: 2,
+  medianKernel: 7,
+  maWindowSec: 0.6,
+  derivativeWindowSec: 0.3,
+  preWindowSec: 300,
+  guardSec: 10,
+  kNoise: 3.0,
+  slopeThreshold: 0.02,
+  sustainSec: 2.0,
   minAfterPeakSec: 10,
-  searchStartAfterPrevPeakSec: 50,
+  postWindowSec: 250,
+  dropSlopeThreshold: 0.08,
+  flatSlopeThreshold: 0.01,
+  flatToleranceKNoise: 2.0,
+  dwellSec: 3.0,
   fallbackOnsetSec: 300,
   fallbackEmptySec: 100,
 }
@@ -49,6 +58,7 @@ function App() {
   const [segmentsError, setSegmentsError] = useState<string>('')
   const [segmentsDerived, setSegmentsDerived] = useState<boolean>(false)
   const [hasDerivedSegments, setHasDerivedSegments] = useState<boolean>(false)
+  const [onsetEmptyConfirmed, setOnsetEmptyConfirmed] = useState<boolean>(false)
 
   const steps = [
     { number: 1, label: 'Upload' },
@@ -95,6 +105,7 @@ function App() {
     setSegmentsDerived(false)
     setHasDerivedSegments(false)
     setIsDerivingSegments(false)
+    setOnsetEmptyConfirmed(false)
   }
 
   const resetSegmentsState = () => {
@@ -372,6 +383,7 @@ function App() {
       setSegments(result.segments || [])
       setSegmentsDerived(true)
       setHasDerivedSegments(true)
+      setOnsetEmptyConfirmed(false)
     } catch (err) {
       setOnsetPoints([])
       setEmptyPoints([])
@@ -389,6 +401,25 @@ function App() {
     if (isDerivingSegments) return
     handleDeriveSegments()
   }, [segmentParams])
+
+  const handleManualPointsChange = (nextOnset: SegmentPoint[], nextEmpty: SegmentPoint[]) => {
+    setOnsetPoints(nextOnset)
+    setEmptyPoints(nextEmpty)
+    setOnsetEmptyConfirmed(false)
+    setSegments((prev) =>
+      prev.map((segment, idx) => ({
+        ...segment,
+        onsetTime: nextOnset[idx]?.time ?? segment.onsetTime,
+        emptyTime: nextEmpty[idx]?.time ?? segment.emptyTime,
+      })),
+    )
+  }
+
+  const handleConfirmOnsetEmpty = () => {
+    if (segmentsDerived) {
+      setOnsetEmptyConfirmed(true)
+    }
+  }
 
   const handleNext = () => {
     setCurrentStep((prev) => Math.min(prev + 1, steps.length))
@@ -416,7 +447,7 @@ function App() {
       return !peaksConfirmed
     }
     if (currentStep === 5) {
-      return !segmentsDerived
+      return !(segmentsDerived && onsetEmptyConfirmed)
     }
     return true
   }, [
@@ -426,6 +457,7 @@ function App() {
     originalData,
     peaks,
     peaksConfirmed,
+    onsetEmptyConfirmed,
     segmentsDerived,
     windowSelection,
   ])
@@ -511,6 +543,9 @@ function App() {
           segmentParams={segmentParams}
           onSegmentParamsChange={setSegmentParams}
           segmentsDerived={segmentsDerived}
+          onsetEmptyConfirmed={onsetEmptyConfirmed}
+          onConfirmOnsetEmpty={handleConfirmOnsetEmpty}
+          onUpdatePoints={handleManualPointsChange}
         />
       )
     }

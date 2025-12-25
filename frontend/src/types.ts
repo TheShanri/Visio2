@@ -39,18 +39,27 @@ export type UploadResponse = {
 }
 
 export type SegmentParams = {
-  onsetGradient?: number | null
-  onsetPressureDrop?: number | null
-  emptyPressureDrop?: number | null
+  medianKernel?: number | null
+  maWindowSec?: number | null
+  derivativeWindowSec?: number | null
+  preWindowSec?: number | null
+  guardSec?: number | null
+  kNoise?: number | null
+  slopeThreshold?: number | null
+  sustainSec?: number | null
   minAfterPeakSec?: number | null
-  searchStartAfterPrevPeakSec?: number | null
+  postWindowSec?: number | null
+  dropSlopeThreshold?: number | null
+  flatSlopeThreshold?: number | null
+  flatToleranceKNoise?: number | null
+  dwellSec?: number | null
   fallbackOnsetSec?: number | null
   fallbackEmptySec?: number | null
 }
 
 export type SegmentPoint = {
-  time: number
-  value: number
+  time: number | null
+  value: number | null
   index?: number
 }
 
@@ -63,8 +72,8 @@ export type SegmentMetrics = {
 
 export type Segment = {
   i: number
-  onsetTime: number
-  peakTime: number
-  emptyTime: number
+  onsetTime: number | null
+  peakTime: number | null
+  emptyTime: number | null
   metrics: SegmentMetrics
 }

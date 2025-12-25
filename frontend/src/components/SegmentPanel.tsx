@@ -11,52 +11,22 @@ type SegmentPanelProps = {
 }
 
 const PARAM_FIELDS: { key: keyof SegmentParams; label: string; helper?: string; step?: string; min?: number }[] = [
-  {
-    key: 'onsetGradient',
-    label: 'Onset gradient (≥)',
-    helper: 'Minimum gradient to consider as onset (pressure units/sec).',
-    step: '0.1',
-  },
-  {
-    key: 'onsetPressureDrop',
-    label: 'Onset pressure drop (≥)',
-    helper: 'Minimum drop from peak to qualify as onset.',
-    step: '0.1',
-  },
-  {
-    key: 'emptyPressureDrop',
-    label: 'Empty pressure drop (≥)',
-    helper: 'Minimum drop from peak to qualify as empty.',
-    step: '0.1',
-  },
-  {
-    key: 'minAfterPeakSec',
-    label: 'Min seconds after peak',
-    helper: 'Do not search for empty points until this duration after the peak.',
-    step: '1',
-    min: 0,
-  },
-  {
-    key: 'searchStartAfterPrevPeakSec',
-    label: 'Search start after prev peak (s)',
-    helper: 'Offset after prior peak before searching for the next onset.',
-    step: '1',
-    min: 0,
-  },
-  {
-    key: 'fallbackOnsetSec',
-    label: 'Fallback onset offset (s)',
-    helper: 'Used when gradient-based onset is not found.',
-    step: '1',
-    min: 0,
-  },
-  {
-    key: 'fallbackEmptySec',
-    label: 'Fallback empty offset (s)',
-    helper: 'Used when empty detection does not find a match.',
-    step: '1',
-    min: 0,
-  },
+  { key: 'medianKernel', label: 'Median kernel (odd)', helper: 'Odd-sized kernel for median smoothing.', step: '1', min: 1 },
+  { key: 'maWindowSec', label: 'Moving average window (s)', helper: 'Light smoothing window in seconds.', step: '0.1', min: 0 },
+  { key: 'derivativeWindowSec', label: 'Derivative window (s)', helper: 'Window for computing dp/dt.', step: '0.1', min: 0 },
+  { key: 'preWindowSec', label: 'Onset lookback window (s)', helper: 'Search window before the peak.', step: '1', min: 1 },
+  { key: 'guardSec', label: 'Guard before peak (s)', helper: 'Exclude a guard band immediately before the peak.', step: '1', min: 0 },
+  { key: 'kNoise', label: 'Noise multiplier (k)', helper: 'Threshold multiplier on MAD noise.', step: '0.1', min: 0 },
+  { key: 'slopeThreshold', label: 'Rise slope threshold', helper: 'dp/dt required for onset.', step: '0.01', min: 0 },
+  { key: 'sustainSec', label: 'Onset sustain (s)', helper: 'Duration conditions must hold.', step: '0.5', min: 0 },
+  { key: 'minAfterPeakSec', label: 'Min seconds after peak', helper: 'Delay empty search after a peak.', step: '1', min: 0 },
+  { key: 'postWindowSec', label: 'Post-peak window (s)', helper: 'Maximum search window after peak.', step: '1', min: 1 },
+  { key: 'dropSlopeThreshold', label: 'Drop slope threshold', helper: 'dp/dt threshold to identify main drop.', step: '0.01', min: 0 },
+  { key: 'flatSlopeThreshold', label: 'Flat slope threshold', helper: 'Max |dp/dt| for empty flatline.', step: '0.01', min: 0 },
+  { key: 'flatToleranceKNoise', label: 'Flat tolerance (k * noise)', helper: 'Tolerance around flat baseline.', step: '0.1', min: 0 },
+  { key: 'dwellSec', label: 'Dwell (s)', helper: 'Duration flat criteria must hold.', step: '0.5', min: 0 },
+  { key: 'fallbackOnsetSec', label: 'Fallback onset offset (s)', helper: 'Used when onset is not found.', step: '1', min: 0 },
+  { key: 'fallbackEmptySec', label: 'Fallback empty offset (s)', helper: 'Used when empty is not found.', step: '1', min: 0 },
 ]
 
 export function SegmentPanel({
