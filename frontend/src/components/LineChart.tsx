@@ -107,7 +107,7 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
 
     const focus = g.append('g').style('display', 'none')
     focus.append('circle').attr('r', 4).attr('fill', '#dc2626').attr('stroke', '#fff').attr('stroke-width', 1.5)
-    const focusText = focus.append('g')
+    const focusText = focus.append('g').attr('transform', 'translate(8,-8)')
     const textBg = focusText.append('rect').attr('fill', '#111').attr('rx', 4).attr('ry', 4).attr('opacity', 0.8)
     const textLabel = focusText.append('text').attr('fill', '#fff').attr('font-size', '12px').attr('dy', '1em').attr('dx', '0.5em')
 
@@ -131,53 +131,11 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
       const pointB = sortedPoints[clampedIndex]
       const point = x0 - pointA.x > pointB.x - x0 ? pointB : pointA
 
-      const focusX = xScale(point.x)
-      const focusY = yScale(point.y)
-      focus.attr('transform', `translate(${focusX},${focusY})`)
-
+      focus.attr('transform', `translate(${xScale(point.x)},${yScale(point.y)})`)
       const label = `${point.x.toFixed(2)}, ${point.y.toFixed(2)}`
       textLabel.text(label)
-
-      const labelBox = (textLabel.node() as SVGGraphicsElement).getBBox()
-      const tooltipWidth = labelBox.width + 8
-      const tooltipHeight = labelBox.height + 6
-      textBg.attr('width', tooltipWidth).attr('height', tooltipHeight).attr('x', -4).attr('y', -4)
-
-      const padding = 8
-      // Start with a preferred offset to the upper-right of the point
-      let offsetX = padding
-      let offsetY = -tooltipHeight - padding / 2
-
-      // Compute absolute tooltip bounds relative to the chart's inner area
-      let tooltipLeft = focusX + offsetX - 4
-      let tooltipRight = tooltipLeft + tooltipWidth
-
-      // Flip horizontally when the tooltip would overflow the right edge
-      if (tooltipRight > innerWidth - padding) {
-        offsetX = -(tooltipWidth + padding) + 4
-        tooltipLeft = focusX + offsetX - 4
-        tooltipRight = tooltipLeft + tooltipWidth
-      }
-
-      // Clamp horizontally to keep the tooltip fully visible with padding
-      if (tooltipLeft < padding) {
-        offsetX += padding - tooltipLeft
-      }
-
-      let tooltipTop = focusY + offsetY - 4
-
-      // Flip vertically when the tooltip would overflow the top edge
-      if (tooltipTop < padding) {
-        offsetY = padding
-        tooltipTop = focusY + offsetY - 4
-      }
-
-      // Clamp vertically to stay within the viewport (allow slight bottom overflow)
-      if (tooltipTop < padding) {
-        offsetY += padding - tooltipTop
-      }
-
-      focusText.attr('transform', `translate(${offsetX},${offsetY})`)
+      const bbox = (textLabel.node() as SVGGraphicsElement).getBBox()
+      textBg.attr('width', bbox.width + 8).attr('height', bbox.height + 6).attr('x', -2).attr('y', -2)
     }
   }, [sortedPoints, width, height, xLabel, yLabel, title])
 
