@@ -113,8 +113,23 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
 
     // Tooltip group (position set dynamically on mouse move)
     const focusText = focus.append('g')
-    const textBg = focusText.append('rect').attr('fill', '#111').attr('rx', 4).attr('ry', 4).attr('opacity', 0.8)
-    const textLabel = focusText.append('text').attr('fill', '#fff').attr('font-size', '12px').attr('dy', '1em').attr('dx', '0.5em')
+    const padX = 8
+    const padY = 6
+
+    const textBg = focusText
+      .append('rect')
+      .attr('fill', '#111')
+      .attr('rx', 4)
+      .attr('ry', 4)
+      .attr('opacity', 0.8)
+
+    const textLabel = focusText
+      .append('text')
+      .attr('fill', '#fff')
+      .attr('font-size', '12px')
+      .attr('x', padX)
+      .attr('y', padY)
+      .attr('dominant-baseline', 'hanging')
 
     const overlay = g
       .append('rect')
@@ -145,7 +160,13 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
 
       // Size background to text
       const labelBox = (textLabel.node() as SVGGraphicsElement).getBBox()
-      textBg.attr('width', labelBox.width + 8).attr('height', labelBox.height + 6).attr('x', -4).attr('y', -4)
+
+      // Background starts at (0,0), text starts at (padX,padY)
+      textBg
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', labelBox.width + padX * 2)
+        .attr('height', labelBox.height + padY * 2)
 
       // Measure the tooltip group AFTER sizing background
       const tooltipBox = (focusText.node() as SVGGElement).getBBox()
