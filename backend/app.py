@@ -10,6 +10,7 @@ from services import (
     process_uploaded_data,
     run_find_peaks,
     suggest_params,
+    to_jsonable,
 )
 
 app = Flask(__name__)
@@ -109,7 +110,7 @@ def run_peaks_route():
         return jsonify({"error": error}), 400
 
     result = run_find_peaks(pressure, params)
-    return jsonify(result)
+    return jsonify(to_jsonable(result))
 
 
 @app.route("/api/peaks/suggest", methods=["POST"])
@@ -136,7 +137,7 @@ def suggest_peaks_route():
         return jsonify({"error": "searchBudget must be a number or null"}), 400
 
     suggestion = suggest_params(pressure, int(expected_count), budget)
-    return jsonify(suggestion)
+    return jsonify(to_jsonable(suggestion))
 
 
 @app.route("/api/generate-report", methods=["POST"])
