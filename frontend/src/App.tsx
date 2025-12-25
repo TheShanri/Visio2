@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { uploadFile, getApiBase, generateReport } from './api'
 import { Peak, PeakParams, SessionData } from './types'
 import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
@@ -9,6 +9,7 @@ import { StepUpload } from './steps/StepUpload'
 import { StepWindow } from './steps/StepWindow'
 import { StepAutoPeaks } from './steps/StepAutoPeaks'
 import { StepRefinePeaks } from './steps/StepRefinePeaks'
+import { applyWindowToSessionData } from './lib/windowing'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -25,7 +26,8 @@ function App() {
   const [isExporting, setIsExporting] = useState<boolean>(false)
   const [actionStatus, setActionStatus] = useState<string>('')
   const [currentStep, setCurrentStep] = useState<number>(1)
-  const [windowConfirmed, setWindowConfirmed] = useState<boolean>(false)
+  const [experimentWindow, setExperimentWindow] = useState<{ start: number; end: number } | null>(null)
+  const [draftWindow, setDraftWindow] = useState<{ start: number; end: number } | null>(null)
   const [autoDetectionAcknowledged, setAutoDetectionAcknowledged] = useState<boolean>(false)
   const [peaksConfirmed, setPeaksConfirmed] = useState<boolean>(false)
 
@@ -65,27 +67,19 @@ function App() {
     return () => controller.abort()
   }, [])
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null
+  const handleUpload = async (file: File) => {
     setSelectedFile(file)
-  }
-
-  const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!selectedFile) {
-      setError('Please select a file to upload')
-      return
-    }
-
     setIsUploading(true)
     setError('')
     setActionStatus('')
 
     try {
-      const uploadedData = await uploadFile(selectedFile)
+      const uploadedData = await uploadFile(file)
       setOriginalData(uploadedData)
       setTrims([])
       setPending({})
+      setExperimentWindow(null)
+      setDraftWindow(null)
       setCurrentStep(2)
     } catch (err) {
       setError((err as Error).message)
@@ -93,6 +87,8 @@ function App() {
       setCurrentData(null)
       setTrims([])
       setPending({})
+      setExperimentWindow(null)
+      setDraftWindow(null)
       setCurrentStep(1)
     } finally {
       setIsUploading(false)
@@ -104,7 +100,8 @@ function App() {
       setCurrentData(null)
       setPeakParams(null)
       setPeaks([])
-      setWindowConfirmed(false)
+      setExperimentWindow(null)
+      setDraftWindow(null)
       setAutoDetectionAcknowledged(false)
       setPeaksConfirmed(false)
       return
@@ -118,7 +115,8 @@ function App() {
       })
       setPeakParams(null)
       setPeaks([])
-      setWindowConfirmed(false)
+      setExperimentWindow(null)
+      setDraftWindow(null)
       setAutoDetectionAcknowledged(false)
       setPeaksConfirmed(false)
       return
@@ -131,7 +129,8 @@ function App() {
     })
     setPeakParams(null)
     setPeaks([])
-    setWindowConfirmed(false)
+    setExperimentWindow(null)
+    setDraftWindow(null)
     setAutoDetectionAcknowledged(false)
     setPeaksConfirmed(false)
   }, [originalData, trims])
@@ -140,30 +139,103 @@ function App() {
     setPeaksConfirmed(false)
   }, [peaks])
 
-  const pressurePreview = useMemo(() => currentData?.pressure.slice(0, 5) ?? [], [currentData])
+  const elapsedRange = useMemo(() => {
+    if (!currentData) return null
+    const times = [
+      ...currentData.scale.map((row) => row['Elapsed Time']),
+      ...currentData.volume.map((row) => row['Elapsed Time']),
+      ...currentData.pressure.map((row) => row['Elapsed Time']),
+    ].filter((value) => Number.isFinite(value))
+
+    if (times.length === 0) return null
+    return { min: Math.min(...times), max: Math.max(...times) }
+  }, [currentData])
+
+  useEffect(() => {
+    if (!elapsedRange || !currentData) {
+      setDraftWindow(null)
+      setExperimentWindow(null)
+      return
+    }
+
+    setDraftWindow((prev) => {
+      if (!prev) return { start: elapsedRange.min, end: elapsedRange.max }
+      const start = Math.max(elapsedRange.min, Math.min(prev.start, elapsedRange.max))
+      const end = Math.max(elapsedRange.min, Math.min(prev.end, elapsedRange.max))
+      return { start: Math.min(start, end), end: Math.max(start, end) }
+    })
+
+    setExperimentWindow((prev) => {
+      if (!prev) return null
+      const start = Math.max(elapsedRange.min, Math.min(prev.start, elapsedRange.max))
+      const end = Math.max(elapsedRange.min, Math.min(prev.end, elapsedRange.max))
+      return { start: Math.min(start, end), end: Math.max(start, end) }
+    })
+  }, [currentData, elapsedRange])
+
+  const windowSelection = useMemo(() => {
+    if (draftWindow) return draftWindow
+    if (!elapsedRange) return null
+    return { start: elapsedRange.min, end: elapsedRange.max }
+  }, [draftWindow, elapsedRange])
+
+  const windowedCurrentData = useMemo(() => {
+    if (!currentData || !windowSelection) return currentData
+    return applyWindowToSessionData(currentData, windowSelection.start, windowSelection.end)
+  }, [currentData, windowSelection])
+
+  const windowedScalePoints = useMemo(() => {
+    if (!windowedCurrentData) return []
+    return toPoints(windowedCurrentData.scale, 'Elapsed Time', 'Scale')
+  }, [windowedCurrentData])
+
+  const windowedVolumePoints = useMemo(() => {
+    if (!windowedCurrentData) return []
+    return toPoints(windowedCurrentData.volume, 'Elapsed Time', 'Tot Infused Vol')
+  }, [windowedCurrentData])
+
+  const windowedPressurePoints = useMemo(() => {
+    if (!windowedCurrentData) return []
+    return toPoints(windowedCurrentData.pressure, 'Elapsed Time', 'Bladder Pressure')
+  }, [windowedCurrentData])
+
+  const windowedDuration = useMemo(() => {
+    const baseSeries = windowedPressurePoints.length > 0 ? windowedPressurePoints : windowedScalePoints
+    return computeDuration(baseSeries)
+  }, [windowedPressurePoints, windowedScalePoints])
+
+  const windowedMaxPressure = useMemo(
+    () => computeMaxY(windowedPressurePoints),
+    [windowedPressurePoints],
+  )
+
+  const windowedFinalVolume = useMemo(() => computeFinalY(windowedVolumePoints), [windowedVolumePoints])
+
+  const processedData = useMemo(() => {
+    if (!currentData) return null
+    if (experimentWindow) {
+      return applyWindowToSessionData(currentData, experimentWindow.start, experimentWindow.end)
+    }
+    return windowedCurrentData
+  }, [currentData, experimentWindow, windowedCurrentData])
+
+  const pressurePreview = useMemo(() => processedData?.pressure.slice(0, 5) ?? [], [processedData])
 
   const scalePoints = useMemo(() => {
-    if (!currentData) return []
-    return toPoints(currentData.scale, 'Elapsed Time', 'Scale')
-  }, [currentData])
+    if (!processedData) return []
+    return toPoints(processedData.scale, 'Elapsed Time', 'Scale')
+  }, [processedData])
 
   const volumePoints = useMemo(() => {
-    if (!currentData) return []
-    return toPoints(currentData.volume, 'Elapsed Time', 'Tot Infused Vol')
-  }, [currentData])
+    if (!processedData) return []
+    return toPoints(processedData.volume, 'Elapsed Time', 'Tot Infused Vol')
+  }, [processedData])
 
   const pressurePoints = useMemo(() => {
-    if (!currentData) return []
-    return toPoints(currentData.pressure, 'Elapsed Time', 'Bladder Pressure')
-  }, [currentData])
+    if (!processedData) return []
+    return toPoints(processedData.pressure, 'Elapsed Time', 'Bladder Pressure')
+  }, [processedData])
 
-  const duration = useMemo(() => {
-    const baseSeries = pressurePoints.length > 0 ? pressurePoints : scalePoints
-    return computeDuration(baseSeries)
-  }, [pressurePoints, scalePoints])
-
-  const maxPressure = useMemo(() => computeMaxY(pressurePoints), [pressurePoints])
-  const finalVolume = useMemo(() => computeFinalY(volumePoints), [volumePoints])
 
   const handleApplyPending = () => {
     if (pending.start === undefined || pending.end === undefined) return
@@ -171,19 +243,22 @@ function App() {
     const end = Math.max(pending.start, pending.end)
     setTrims((prev) => [...prev, { start, end }])
     setPending({})
-    setWindowConfirmed(false)
+    setExperimentWindow(null)
+    setDraftWindow(null)
   }
 
   const handleUndo = () => {
     setTrims((prev) => prev.slice(0, -1))
     setPending({})
-    setWindowConfirmed(false)
+    setExperimentWindow(null)
+    setDraftWindow(null)
   }
 
   const handleRestore = () => {
     setTrims([])
     setPending({})
-    setWindowConfirmed(false)
+    setExperimentWindow(null)
+    setDraftWindow(null)
   }
 
   const handleExportReport = async () => {
@@ -211,8 +286,22 @@ function App() {
   }
 
   const handleConfirmWindow = () => {
-    if (!currentData) return
-    setWindowConfirmed(true)
+    if (!windowSelection) return
+    setExperimentWindow({ ...windowSelection })
+  }
+
+  const handleResetWindow = () => {
+    if (!elapsedRange) return
+    const fullRange = { start: elapsedRange.min, end: elapsedRange.max }
+    setDraftWindow(fullRange)
+    setExperimentWindow(null)
+  }
+
+  const handleWindowChange = (start: number, end: number) => {
+    if (!elapsedRange) return
+    const clampedStart = Math.max(elapsedRange.min, Math.min(start, elapsedRange.max))
+    const clampedEnd = Math.max(elapsedRange.min, Math.min(end, elapsedRange.max))
+    setDraftWindow({ start: Math.min(clampedStart, clampedEnd), end: Math.max(clampedStart, clampedEnd) })
   }
 
   const handleAutoDetect = () => {
@@ -240,7 +329,11 @@ function App() {
       return !(originalData && currentData)
     }
     if (currentStep === 2) {
-      return !windowConfirmed
+      if (!windowSelection) return true
+      if (!experimentWindow) return true
+      return (
+        experimentWindow.start !== windowSelection.start || experimentWindow.end !== windowSelection.end
+      )
     }
     if (currentStep === 3) {
       return !autoDetectionAcknowledged
@@ -249,7 +342,15 @@ function App() {
       return !peaksConfirmed
     }
     return true
-  }, [autoDetectionAcknowledged, currentData, currentStep, originalData, peaksConfirmed, windowConfirmed])
+  }, [
+    autoDetectionAcknowledged,
+    currentData,
+    currentStep,
+    experimentWindow,
+    originalData,
+    peaksConfirmed,
+    windowSelection,
+  ])
 
   const isPrevDisabled = currentStep === 1
 
@@ -262,7 +363,6 @@ function App() {
           error={error}
           actionStatus={actionStatus}
           isUploading={isUploading}
-          onFileChange={handleFileChange}
           onUpload={handleUpload}
         />
       )
@@ -271,17 +371,19 @@ function App() {
     if (currentStep === 2) {
       return (
         <StepWindow
-          currentData={currentData}
-          trims={trims}
-          duration={duration}
-          maxPressure={maxPressure}
-          finalVolume={finalVolume}
-          isExporting={isExporting}
           actionStatus={actionStatus}
-          windowConfirmed={windowConfirmed}
-          onOpenTrimmer={() => setIsTrimmerOpen(true)}
-          onExportReport={handleExportReport}
+          windowRange={elapsedRange}
+          windowSelection={windowSelection}
+          experimentWindow={experimentWindow}
+          onWindowChange={handleWindowChange}
           onConfirmWindow={handleConfirmWindow}
+          onResetWindow={handleResetWindow}
+          scalePoints={windowedScalePoints}
+          volumePoints={windowedVolumePoints}
+          pressurePoints={windowedPressurePoints}
+          windowedDuration={windowedDuration}
+          windowedMaxPressure={windowedMaxPressure}
+          windowedFinalVolume={windowedFinalVolume}
         />
       )
     }
@@ -289,7 +391,7 @@ function App() {
     if (currentStep === 3) {
       return (
         <StepAutoPeaks
-          pressureRows={currentData?.pressure ?? null}
+          pressureRows={processedData?.pressure ?? null}
           peakParams={peakParams}
           peaks={peaks}
           onDetect={handleAutoDetect}
