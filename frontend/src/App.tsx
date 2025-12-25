@@ -4,6 +4,8 @@ import { SessionData } from './types'
 import { LineChart } from './components/LineChart'
 import { SummaryCards } from './components/SummaryCards'
 import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
+import TrimmerModal from './components/TrimmerModal'
+import { Interval, applyTrims } from './lib/trimming'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -12,6 +14,9 @@ function App() {
   const [isUploading, setIsUploading] = useState<boolean>(false)
   const [originalData, setOriginalData] = useState<SessionData | null>(null)
   const [currentData, setCurrentData] = useState<SessionData | null>(null)
+  const [isTrimmerOpen, setIsTrimmerOpen] = useState<boolean>(false)
+  const [trims, setTrims] = useState<Interval[]>([])
+  const [pending, setPending] = useState<{ start?: number; end?: number }>({})
 
   useEffect(() => {
     let apiUrl: string
@@ -59,15 +64,31 @@ function App() {
     try {
       const uploadedData = await uploadFile(selectedFile)
       setOriginalData(uploadedData)
-      setCurrentData(JSON.parse(JSON.stringify(uploadedData)))
+      setTrims([])
+      setPending({})
     } catch (err) {
       setError((err as Error).message)
       setOriginalData(null)
       setCurrentData(null)
+      setTrims([])
+      setPending({})
     } finally {
       setIsUploading(false)
     }
   }
+
+  useEffect(() => {
+    if (!originalData) {
+      setCurrentData(null)
+      return
+    }
+
+    setCurrentData({
+      scale: originalData.scale,
+      volume: originalData.volume,
+      pressure: applyTrims(originalData.pressure, trims),
+    })
+  }, [originalData, trims])
 
   const pressurePreview = useMemo(() => currentData?.pressure.slice(0, 5) ?? [], [currentData])
 
@@ -94,6 +115,24 @@ function App() {
   const maxPressure = useMemo(() => computeMaxY(pressurePoints), [pressurePoints])
   const finalVolume = useMemo(() => computeFinalY(volumePoints), [volumePoints])
 
+  const handleApplyPending = () => {
+    if (pending.start === undefined || pending.end === undefined) return
+    const start = Math.min(pending.start, pending.end)
+    const end = Math.max(pending.start, pending.end)
+    setTrims((prev) => [...prev, { start, end }])
+    setPending({})
+  }
+
+  const handleUndo = () => {
+    setTrims((prev) => prev.slice(0, -1))
+    setPending({})
+  }
+
+  const handleRestore = () => {
+    setTrims([])
+    setPending({})
+  }
+
   return (
     <main style={{ fontFamily: 'Arial, sans-serif', padding: '2rem' }}>
       <h1>VISIO MVP</h1>
@@ -117,6 +156,10 @@ function App() {
             Scale rows: {currentData.scale.length} | Volume rows: {currentData.volume.length} | Pressure rows:{' '}
             {currentData.pressure.length}
           </p>
+
+          <div style={{ marginBottom: '1rem' }}>
+            <button onClick={() => setIsTrimmerOpen(true)}>Open trimmer</button>
+          </div>
 
           <SummaryCards duration={duration} maxPressure={maxPressure} finalVolume={finalVolume} />
 
@@ -149,6 +192,18 @@ function App() {
           )}
         </section>
       )}
+
+      <TrimmerModal
+        isOpen={isTrimmerOpen}
+        onClose={() => setIsTrimmerOpen(false)}
+        pressurePoints={pressurePoints}
+        pending={pending}
+        setPending={setPending}
+        trims={trims}
+        onApplyPending={handleApplyPending}
+        onUndo={handleUndo}
+        onRestore={handleRestore}
+      />
     </main>
   )
 }
