@@ -72,7 +72,12 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
       .y((d) => yScale(d.y))
       .curve(d3.curveMonotoneX)
 
-    g.append('path').datum(sortedPoints).attr('fill', 'none').attr('stroke', '#2563eb').attr('stroke-width', 2).attr('d', line)
+    g.append('path')
+      .datum(sortedPoints)
+      .attr('fill', 'none')
+      .attr('stroke', '#2563eb')
+      .attr('stroke-width', 2)
+      .attr('d', line)
 
     const xAxis = d3.axisBottom(xScale).ticks(6)
     const yAxis = d3.axisLeft(yScale).ticks(6)
@@ -80,16 +85,14 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
     g.append('g').attr('transform', `translate(0,${innerHeight})`).call(xAxis)
     g.append('g').call(yAxis)
 
-    g
-      .append('text')
+    g.append('text')
       .attr('x', innerWidth / 2)
       .attr('y', innerHeight + margin.bottom - 8)
       .attr('text-anchor', 'middle')
       .attr('fill', '#111')
       .text(xLabel)
 
-    g
-      .append('text')
+    g.append('text')
       .attr('transform', 'rotate(-90)')
       .attr('x', -innerHeight / 2)
       .attr('y', -margin.left + 16)
@@ -107,7 +110,9 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
 
     const focus = g.append('g').style('display', 'none')
     focus.append('circle').attr('r', 4).attr('fill', '#dc2626').attr('stroke', '#fff').attr('stroke-width', 1.5)
-    const focusText = focus.append('g').attr('transform', 'translate(8,-8)')
+
+    // Tooltip group (position set dynamically on mouse move)
+    const focusText = focus.append('g')
     const textBg = focusText.append('rect').attr('fill', '#111').attr('rx', 4).attr('ry', 4).attr('opacity', 0.8)
     const textLabel = focusText.append('text').attr('fill', '#fff').attr('font-size', '12px').attr('dy', '1em').attr('dx', '0.5em')
 
@@ -131,11 +136,57 @@ export function LineChart({ title, points, xLabel, yLabel, height = 280 }: LineC
       const pointB = sortedPoints[clampedIndex]
       const point = x0 - pointA.x > pointB.x - x0 ? pointB : pointA
 
-      focus.attr('transform', `translate(${xScale(point.x)},${yScale(point.y)})`)
+      const focusX = xScale(point.x)
+      const focusY = yScale(point.y)
+      focus.attr('transform', `translate(${focusX},${focusY})`)
+
       const label = `${point.x.toFixed(2)}, ${point.y.toFixed(2)}`
       textLabel.text(label)
-      const bbox = (textLabel.node() as SVGGraphicsElement).getBBox()
-      textBg.attr('width', bbox.width + 8).attr('height', bbox.height + 6).attr('x', -2).attr('y', -2)
+
+      // Size background to text
+      const labelBox = (textLabel.node() as SVGGraphicsElement).getBBox()
+      textBg.attr('width', labelBox.width + 8).attr('height', labelBox.height + 6).attr('x', -4).attr('y', -4)
+
+      // Measure the tooltip group AFTER sizing background
+      const tooltipBox = (focusText.node() as SVGGElement).getBBox()
+      const padding = 8
+
+      // Prefer up-and-right
+      let offsetX = padding
+      let offsetY = -(tooltipBox.height + padding / 2)
+
+      // Compute projected bounds in plot coords (innerWidth/innerHeight)
+      let left = focusX + offsetX + tooltipBox.x
+      let right = left + tooltipBox.width
+      let top = focusY + offsetY + tooltipBox.y
+      let bottom = top + tooltipBox.height
+
+      // Flip left if it would overflow right edge
+      if (right > innerWidth - padding) {
+        offsetX = -(tooltipBox.width + padding)
+        left = focusX + offsetX + tooltipBox.x
+        right = left + tooltipBox.width
+      }
+
+      // Clamp horizontally inside padded viewport
+      if (left < padding) {
+        offsetX += padding - left
+        left = padding
+      }
+
+      // Flip down if it would overflow top edge
+      if (top < padding) {
+        offsetY = padding
+        top = focusY + offsetY + tooltipBox.y
+        bottom = top + tooltipBox.height
+      }
+
+      // If it would overflow bottom, nudge up as much as possible
+      if (bottom > innerHeight - padding) {
+        offsetY -= bottom - (innerHeight - padding)
+      }
+
+      focusText.attr('transform', `translate(${offsetX},${offsetY})`)
     }
   }, [sortedPoints, width, height, xLabel, yLabel, title])
 
