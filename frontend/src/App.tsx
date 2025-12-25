@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
-import { uploadFile, getApiBase } from './api'
+import { uploadFile, getApiBase, detectPeaks, generateReport } from './api'
 import { SessionData } from './types'
 import { LineChart } from './components/LineChart'
 import { SummaryCards } from './components/SummaryCards'
@@ -17,6 +17,10 @@ function App() {
   const [isTrimmerOpen, setIsTrimmerOpen] = useState<boolean>(false)
   const [trims, setTrims] = useState<Interval[]>([])
   const [pending, setPending] = useState<{ start?: number; end?: number }>({})
+  const [peaks, setPeaks] = useState<{ time: number; value: number }[]>([])
+  const [isDetectingPeaks, setIsDetectingPeaks] = useState<boolean>(false)
+  const [isExporting, setIsExporting] = useState<boolean>(false)
+  const [actionStatus, setActionStatus] = useState<string>('')
 
   useEffect(() => {
     let apiUrl: string
@@ -60,6 +64,7 @@ function App() {
 
     setIsUploading(true)
     setError('')
+    setActionStatus('')
 
     try {
       const uploadedData = await uploadFile(selectedFile)
@@ -80,6 +85,7 @@ function App() {
   useEffect(() => {
     if (!originalData) {
       setCurrentData(null)
+      setPeaks([])
       return
     }
 
@@ -89,6 +95,7 @@ function App() {
         volume: originalData.volume.map((row) => ({ ...row })),
         pressure: originalData.pressure.map((row) => ({ ...row })),
       })
+      setPeaks([])
       return
     }
 
@@ -97,6 +104,7 @@ function App() {
       volume: filterRowsByIntervals(originalData.volume, 'Elapsed Time', trims),
       pressure: filterRowsByIntervals(originalData.pressure, 'Elapsed Time', trims),
     })
+    setPeaks([])
   }, [originalData, trims])
 
   const pressurePreview = useMemo(() => currentData?.pressure.slice(0, 5) ?? [], [currentData])
@@ -142,6 +150,46 @@ function App() {
     setPending({})
   }
 
+  const handleDetectPeaks = async () => {
+    if (!currentData) return
+    setIsDetectingPeaks(true)
+    setActionStatus('Detecting peaks...')
+
+    try {
+      const detected = await detectPeaks(currentData.pressure)
+      setPeaks(detected)
+      setActionStatus(`Detected ${detected.length} peaks`)
+    } catch (err) {
+      setActionStatus(`Peak detection failed: ${(err as Error).message}`)
+    } finally {
+      setIsDetectingPeaks(false)
+    }
+  }
+
+  const handleExportReport = async () => {
+    if (!currentData) return
+
+    setIsExporting(true)
+    setActionStatus('Generating report...')
+
+    const payload = {
+      ...currentData,
+      kept_intervals: trims.length > 0 ? trims.length : undefined,
+    }
+
+    try {
+      const report = await generateReport(payload, peaks)
+      const apiBase = getApiBase()
+      const downloadUrl = `${apiBase}${report.downloadUrl}`
+      setActionStatus(`Report ready: ${report.filename}`)
+      window.open(downloadUrl, '_blank')
+    } catch (err) {
+      setActionStatus(`Report generation failed: ${(err as Error).message}`)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <main style={{ fontFamily: 'Arial, sans-serif', padding: '2rem' }}>
       <h1>VISIO MVP</h1>
@@ -156,6 +204,7 @@ function App() {
         </form>
         {selectedFile && <p style={{ marginTop: '0.5rem' }}>Selected file: {selectedFile.name}</p>}
         {error && <p style={{ color: 'red', marginTop: '0.5rem' }}>{error}</p>}
+        {actionStatus && <p style={{ marginTop: '0.5rem' }}>{actionStatus}</p>}
       </section>
 
       {currentData && (
@@ -166,8 +215,14 @@ function App() {
             {currentData.pressure.length}
           </p>
 
-          <div style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
             <button onClick={() => setIsTrimmerOpen(true)}>Open trimmer</button>
+            <button onClick={handleDetectPeaks} disabled={isDetectingPeaks}>
+              {isDetectingPeaks ? 'Detecting...' : 'Detect peaks'}
+            </button>
+            <button onClick={handleExportReport} disabled={isExporting}>
+              {isExporting ? 'Exporting...' : 'Export report (XLSX)'}
+            </button>
           </div>
 
           <SummaryCards duration={duration} maxPressure={maxPressure} finalVolume={finalVolume} />
@@ -175,7 +230,13 @@ function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
             <LineChart title="Scale Over Time" points={scalePoints} xLabel="Elapsed Time (s)" yLabel="Scale" />
             <LineChart title="Volume Over Time" points={volumePoints} xLabel="Elapsed Time (s)" yLabel="Tot Infused Vol" />
-            <LineChart title="Pressure Over Time" points={pressurePoints} xLabel="Elapsed Time (s)" yLabel="Bladder Pressure" />
+            <LineChart
+              title="Pressure Over Time"
+              points={pressurePoints}
+              xLabel="Elapsed Time (s)"
+              yLabel="Bladder Pressure"
+              markers={peaks.map((peak, idx) => ({ x: peak.time, y: peak.value, label: `P${idx + 1}` }))}
+            />
           </div>
 
           <h3 style={{ marginTop: '2rem' }}>Pressure Preview (first 5 rows)</h3>
