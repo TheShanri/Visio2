@@ -1,13 +1,14 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
 import { uploadFile, getApiBase, generateReport } from './api'
 import { Peak, PeakParams, SessionData } from './types'
-import { LineChart } from './components/LineChart'
-import { SummaryCards } from './components/SummaryCards'
 import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
 import TrimmerModal from './components/TrimmerModal'
 import { Interval, filterRowsByIntervals } from './lib/trimming'
-import PeakPanel from './components/PeakPanel'
-import PeakEditorOverlay from './components/PeakEditorOverlay'
+import { WizardLayout } from './components/WizardLayout'
+import { StepUpload } from './steps/StepUpload'
+import { StepWindow } from './steps/StepWindow'
+import { StepAutoPeaks } from './steps/StepAutoPeaks'
+import { StepRefinePeaks } from './steps/StepRefinePeaks'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -23,6 +24,18 @@ function App() {
   const [peakParams, setPeakParams] = useState<PeakParams | null>(null)
   const [isExporting, setIsExporting] = useState<boolean>(false)
   const [actionStatus, setActionStatus] = useState<string>('')
+  const [currentStep, setCurrentStep] = useState<number>(1)
+  const [windowConfirmed, setWindowConfirmed] = useState<boolean>(false)
+  const [autoDetectionAcknowledged, setAutoDetectionAcknowledged] = useState<boolean>(false)
+  const [peaksConfirmed, setPeaksConfirmed] = useState<boolean>(false)
+
+  const steps = [
+    { number: 1, label: 'Upload' },
+    { number: 2, label: 'View & Select Data Range' },
+    { number: 3, label: 'Auto Detect Peaks' },
+    { number: 4, label: 'Refine Peaks' },
+    { number: 5, label: 'Download Data (placeholder for later)' },
+  ]
 
   useEffect(() => {
     let apiUrl: string
@@ -73,12 +86,14 @@ function App() {
       setOriginalData(uploadedData)
       setTrims([])
       setPending({})
+      setCurrentStep(2)
     } catch (err) {
       setError((err as Error).message)
       setOriginalData(null)
       setCurrentData(null)
       setTrims([])
       setPending({})
+      setCurrentStep(1)
     } finally {
       setIsUploading(false)
     }
@@ -89,6 +104,9 @@ function App() {
       setCurrentData(null)
       setPeakParams(null)
       setPeaks([])
+      setWindowConfirmed(false)
+      setAutoDetectionAcknowledged(false)
+      setPeaksConfirmed(false)
       return
     }
 
@@ -100,6 +118,9 @@ function App() {
       })
       setPeakParams(null)
       setPeaks([])
+      setWindowConfirmed(false)
+      setAutoDetectionAcknowledged(false)
+      setPeaksConfirmed(false)
       return
     }
 
@@ -110,7 +131,14 @@ function App() {
     })
     setPeakParams(null)
     setPeaks([])
+    setWindowConfirmed(false)
+    setAutoDetectionAcknowledged(false)
+    setPeaksConfirmed(false)
   }, [originalData, trims])
+
+  useEffect(() => {
+    setPeaksConfirmed(false)
+  }, [peaks])
 
   const pressurePreview = useMemo(() => currentData?.pressure.slice(0, 5) ?? [], [currentData])
 
@@ -143,16 +171,19 @@ function App() {
     const end = Math.max(pending.start, pending.end)
     setTrims((prev) => [...prev, { start, end }])
     setPending({})
+    setWindowConfirmed(false)
   }
 
   const handleUndo = () => {
     setTrims((prev) => prev.slice(0, -1))
     setPending({})
+    setWindowConfirmed(false)
   }
 
   const handleRestore = () => {
     setTrims([])
     setPending({})
+    setWindowConfirmed(false)
   }
 
   const handleExportReport = async () => {
@@ -179,86 +210,132 @@ function App() {
     }
   }
 
+  const handleConfirmWindow = () => {
+    if (!currentData) return
+    setWindowConfirmed(true)
+  }
+
+  const handleAutoDetect = () => {
+    setAutoDetectionAcknowledged(true)
+  }
+
+  const handleSkipAuto = () => {
+    setAutoDetectionAcknowledged(true)
+  }
+
+  const handleConfirmPeaks = () => {
+    setPeaksConfirmed(true)
+  }
+
+  const handleNext = () => {
+    setCurrentStep((prev) => Math.min(prev + 1, steps.length))
+  }
+
+  const handlePrev = () => {
+    setCurrentStep((prev) => Math.max(prev - 1, 1))
+  }
+
+  const isNextDisabled = useMemo(() => {
+    if (currentStep === 1) {
+      return !(originalData && currentData)
+    }
+    if (currentStep === 2) {
+      return !windowConfirmed
+    }
+    if (currentStep === 3) {
+      return !autoDetectionAcknowledged
+    }
+    if (currentStep === 4) {
+      return !peaksConfirmed
+    }
+    return true
+  }, [autoDetectionAcknowledged, currentData, currentStep, originalData, peaksConfirmed, windowConfirmed])
+
+  const isPrevDisabled = currentStep === 1
+
+  const renderStep = () => {
+    if (currentStep === 1) {
+      return (
+        <StepUpload
+          status={status}
+          selectedFile={selectedFile}
+          error={error}
+          actionStatus={actionStatus}
+          isUploading={isUploading}
+          onFileChange={handleFileChange}
+          onUpload={handleUpload}
+        />
+      )
+    }
+
+    if (currentStep === 2) {
+      return (
+        <StepWindow
+          currentData={currentData}
+          trims={trims}
+          duration={duration}
+          maxPressure={maxPressure}
+          finalVolume={finalVolume}
+          isExporting={isExporting}
+          actionStatus={actionStatus}
+          windowConfirmed={windowConfirmed}
+          onOpenTrimmer={() => setIsTrimmerOpen(true)}
+          onExportReport={handleExportReport}
+          onConfirmWindow={handleConfirmWindow}
+        />
+      )
+    }
+
+    if (currentStep === 3) {
+      return (
+        <StepAutoPeaks
+          pressureRows={currentData?.pressure ?? null}
+          peakParams={peakParams}
+          peaks={peaks}
+          onDetect={handleAutoDetect}
+          onSkip={handleSkipAuto}
+          hasAcknowledged={autoDetectionAcknowledged}
+          setPeakParams={setPeakParams}
+          setPeaks={setPeaks}
+        />
+      )
+    }
+
+    if (currentStep === 4) {
+      return (
+        <StepRefinePeaks
+          scalePoints={scalePoints}
+          volumePoints={volumePoints}
+          pressurePoints={pressurePoints}
+          peaks={peaks}
+          setPeaks={setPeaks}
+          pressurePreview={pressurePreview}
+          onConfirmPeaks={handleConfirmPeaks}
+          peaksConfirmed={peaksConfirmed}
+        />
+      )
+    }
+
+    return (
+      <div>
+        <h2 style={{ marginTop: 0 }}>Download Data (placeholder for later)</h2>
+        <p>This step is reserved for upcoming download options.</p>
+      </div>
+    )
+  }
+
   return (
-    <main style={{ fontFamily: 'Arial, sans-serif', padding: '2rem' }}>
-      <h1>VISIO MVP</h1>
-      <p>Backend health: {status}</p>
-
-      <section style={{ marginTop: '1rem' }}>
-        <form onSubmit={handleUpload} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <input type="file" accept=".txt,.csv" onChange={handleFileChange} />
-          <button type="submit" disabled={isUploading}>
-            {isUploading ? 'Uploading...' : 'Upload'}
-          </button>
-        </form>
-        {selectedFile && <p style={{ marginTop: '0.5rem' }}>Selected file: {selectedFile.name}</p>}
-        {error && <p style={{ color: 'red', marginTop: '0.5rem' }}>{error}</p>}
-        {actionStatus && <p style={{ marginTop: '0.5rem' }}>{actionStatus}</p>}
-      </section>
-
-      {currentData && (
-        <section style={{ marginTop: '2rem' }}>
-          <h2>Uploaded Data</h2>
-          <p>
-            Scale rows: {currentData.scale.length} | Volume rows: {currentData.volume.length} | Pressure rows:{' '}
-            {currentData.pressure.length}
-          </p>
-
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            <button onClick={() => setIsTrimmerOpen(true)}>Open trimmer</button>
-            <button onClick={handleExportReport} disabled={isExporting}>
-              {isExporting ? 'Exporting...' : 'Export report (XLSX)'}
-            </button>
-          </div>
-
-          <SummaryCards duration={duration} maxPressure={maxPressure} finalVolume={finalVolume} />
-
-          <PeakPanel
-            pressureRows={currentData.pressure}
-            params={peakParams}
-            setParams={setPeakParams}
-            peaks={peaks}
-            setPeaks={setPeaks}
-          />
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
-            <LineChart title="Scale Over Time" points={scalePoints} xLabel="Elapsed Time (s)" yLabel="Scale" />
-            <LineChart title="Volume Over Time" points={volumePoints} xLabel="Elapsed Time (s)" yLabel="Tot Infused Vol" />
-            <div style={{ position: 'relative', height: 320 }}>
-              <LineChart
-                title="Pressure Over Time"
-                points={pressurePoints}
-                xLabel="Elapsed Time (s)"
-                yLabel="Bladder Pressure"
-                height={320}
-              />
-              <PeakEditorOverlay points={pressurePoints} peaks={peaks} setPeaks={setPeaks} height={320} />
-            </div>
-          </div>
-
-          <h3 style={{ marginTop: '2rem' }}>Pressure Preview (first 5 rows)</h3>
-          {pressurePreview.length === 0 ? (
-            <p>No pressure data available.</p>
-          ) : (
-            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>Elapsed Time</th>
-                  <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>Bladder Pressure</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pressurePreview.map((row, index) => (
-                  <tr key={`pressure-row-${index}`}>
-                    <td style={{ border: '1px solid #ccc', padding: '0.5rem' }}>{row['Elapsed Time']}</td>
-                    <td style={{ border: '1px solid #ccc', padding: '0.5rem' }}>{row['Bladder Pressure']}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-      )}
+    <>
+      <WizardLayout
+        currentStep={currentStep}
+        steps={steps}
+        onNext={handleNext}
+        onPrev={handlePrev}
+        isNextDisabled={isNextDisabled}
+        isPrevDisabled={isPrevDisabled}
+      >
+        {renderStep()}
+      </WizardLayout>
 
       <TrimmerModal
         isOpen={isTrimmerOpen}
@@ -271,7 +348,7 @@ function App() {
         onUndo={handleUndo}
         onRestore={handleRestore}
       />
-    </main>
+    </>
   )
 }
 
