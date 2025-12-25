@@ -1,6 +1,9 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
 import { uploadFile, getApiBase } from './api'
 import { SessionData } from './types'
+import { LineChart } from './components/LineChart'
+import { SummaryCards } from './components/SummaryCards'
+import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -68,6 +71,29 @@ function App() {
 
   const pressurePreview = useMemo(() => currentData?.pressure.slice(0, 5) ?? [], [currentData])
 
+  const scalePoints = useMemo(() => {
+    if (!currentData) return []
+    return toPoints(currentData.scale, 'Elapsed Time', 'Scale')
+  }, [currentData])
+
+  const volumePoints = useMemo(() => {
+    if (!currentData) return []
+    return toPoints(currentData.volume, 'Elapsed Time', 'Tot Infused Vol')
+  }, [currentData])
+
+  const pressurePoints = useMemo(() => {
+    if (!currentData) return []
+    return toPoints(currentData.pressure, 'Elapsed Time', 'Bladder Pressure')
+  }, [currentData])
+
+  const duration = useMemo(() => {
+    const baseSeries = pressurePoints.length > 0 ? pressurePoints : scalePoints
+    return computeDuration(baseSeries)
+  }, [pressurePoints, scalePoints])
+
+  const maxPressure = useMemo(() => computeMaxY(pressurePoints), [pressurePoints])
+  const finalVolume = useMemo(() => computeFinalY(volumePoints), [volumePoints])
+
   return (
     <main style={{ fontFamily: 'Arial, sans-serif', padding: '2rem' }}>
       <h1>VISIO MVP</h1>
@@ -91,7 +117,16 @@ function App() {
             Scale rows: {currentData.scale.length} | Volume rows: {currentData.volume.length} | Pressure rows:{' '}
             {currentData.pressure.length}
           </p>
-          <h3>Pressure Preview (first 5 rows)</h3>
+
+          <SummaryCards duration={duration} maxPressure={maxPressure} finalVolume={finalVolume} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
+            <LineChart title="Scale Over Time" points={scalePoints} xLabel="Elapsed Time (s)" yLabel="Scale" />
+            <LineChart title="Volume Over Time" points={volumePoints} xLabel="Elapsed Time (s)" yLabel="Tot Infused Vol" />
+            <LineChart title="Pressure Over Time" points={pressurePoints} xLabel="Elapsed Time (s)" yLabel="Bladder Pressure" />
+          </div>
+
+          <h3 style={{ marginTop: '2rem' }}>Pressure Preview (first 5 rows)</h3>
           {pressurePreview.length === 0 ? (
             <p>No pressure data available.</p>
           ) : (
