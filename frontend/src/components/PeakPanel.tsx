@@ -10,7 +10,9 @@ type PeakPanelProps = {
   setParams: (params: PeakParams | null) => void
   peaks: Peak[]
   setPeaks: (peaks: Peak[]) => void
-  onDetect?: (source: 'auto' | 'manual') => void
+  expectedCount: number | ''
+  onExpectedCountChange: (value: number | '') => void
+  onDetect?: (peaks: Peak[], source: 'auto' | 'manual') => void
 }
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
@@ -18,13 +20,22 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
   return Number.isFinite(value) ? value.toFixed(digits) : ''
 }
 
-function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect }: PeakPanelProps) {
-  const [expectedCount, setExpectedCount] = useState<number | ''>(3)
+function PeakPanel({
+  pressureRows,
+  params,
+  setParams,
+  peaks,
+  setPeaks,
+  expectedCount,
+  onExpectedCountChange,
+  onDetect,
+}: PeakPanelProps) {
   const [isSuggesting, setIsSuggesting] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [candidates, setCandidates] = useState<SuggestionCandidate[]>([])
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [showParams, setShowParams] = useState(false)
 
   const paramsState = useMemo<PeakParams>(() => params ?? {}, [params])
   const hasData = (pressureRows?.length ?? 0) > 0
@@ -48,7 +59,7 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect 
     }
 
     if (expectedCount === '' || Number.isNaN(Number(expectedCount))) {
-      setError('Expected count must be a number')
+      setError('Expected peak count is required for auto-tune.')
       return
     }
 
@@ -57,10 +68,12 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect 
     setMessage('')
 
     try {
-      const suggestion = await peaksSuggest(pressureRows!, Number(expectedCount))
+      const targetCount = Number(expectedCount)
+      const suggestion = await peaksSuggest(pressureRows!, targetCount)
+      const detected = (suggestion.best.peaks ?? []).map((peak) => ({ ...peak, source: 'auto' as const }))
       setParams(suggestion.best.params ?? {})
-      setPeaks((suggestion.best.peaks ?? []).map((peak) => ({ ...peak, source: 'auto' as const })))
-      onDetect?.('auto')
+      setPeaks(detected)
+      onDetect?.(detected, 'auto')
       setCandidates(suggestion.candidates ?? [])
       setMessage(`Auto-tuned. Best candidate found ${suggestion.best.peaks?.length ?? 0} peaks.`)
     } catch (err) {
@@ -82,8 +95,9 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect 
 
     try {
       const result = await peaksRun(pressureRows!, paramsState)
-      setPeaks((result.peaks ?? []).map((peak) => ({ ...peak, source: 'manual' as const })))
-      onDetect?.('manual')
+      const detected = (result.peaks ?? []).map((peak) => ({ ...peak, source: 'auto' as const }))
+      setPeaks(detected)
+      onDetect?.(detected, 'auto')
       setMessage(`Detected ${result.peaks?.length ?? 0} peaks with current parameters.`)
     } catch (err) {
       setError((err as Error).message)
@@ -93,24 +107,42 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect 
   }
 
   return (
-    <section style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '0.5rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        <h3 style={{ margin: 0 }}>Peak detection</h3>
-        <span style={{ color: '#4b5563' }}>({peaks.length} peaks selected)</span>
+    <section
+      style={{
+        marginTop: '1rem',
+        padding: '1rem',
+        border: '1px solid #e5e7eb',
+        borderRadius: '0.75rem',
+        background: '#fbfbfb',
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+        <h3 style={{ margin: 0, flex: '1 1 auto' }}>Peak detection</h3>
+        <span style={{ color: '#4b5563' }}>
+          {hasData ? `${peaks.length} peaks selected` : 'Upload data to start'}
+        </span>
       </div>
 
-      {!hasData && <p style={{ color: '#6b7280' }}>Upload data to tune and run peak detection.</p>}
-
-      <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+      <div
+        style={{
+          display: 'grid',
+          gap: '1rem',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          alignItems: 'start',
+          marginTop: '0.75rem',
+        }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            Expected peak count
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <span style={{ fontWeight: 700, fontSize: '1rem' }}>Expected peak count</span>
             <input
               type="number"
               min={0}
               value={expectedCount}
-              onChange={(event) => setExpectedCount(event.target.value === '' ? '' : Number(event.target.value))}
-              style={{ padding: '0.4rem 0.5rem' }}
+              onChange={(event) =>
+                onExpectedCountChange(event.target.value === '' ? '' : Number(event.target.value))
+              }
+              style={{ padding: '0.6rem 0.65rem', fontSize: '1rem' }}
               disabled={!hasData || isSuggesting}
             />
           </label>
@@ -119,30 +151,49 @@ function PeakPanel({ pressureRows, params, setParams, peaks, setPeaks, onDetect 
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem' }}>
-          {([
-            ['height', 'Height'],
-            ['threshold', 'Threshold'],
-            ['distance', 'Distance'],
-            ['prominence', 'Prominence'],
-            ['width', 'Width'],
-          ] as const).map(([key, label]) => (
-            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              {label}
-              <input
-                type="number"
-                value={(paramsState[key] ?? '') as number | ''}
-                onChange={(event) => handleParamChange(key, event.target.value)}
-                style={{ padding: '0.4rem 0.5rem' }}
-                disabled={!hasData || isSuggesting}
-              />
-            </label>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <button
+            type="button"
+            onClick={() => setShowParams((prev) => !prev)}
+            disabled={!hasData}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            {showParams ? 'Hide parameters' : 'Show parameters'}
+          </button>
+
+          {showParams && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: '0.5rem',
+              }}
+            >
+              {([
+                ['height', 'Height'],
+                ['prominence', 'Prominence'],
+                ['distance', 'Distance'],
+                ['width', 'Width'],
+                ['threshold', 'Threshold'],
+              ] as const).map(([key, label]) => (
+                <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  {label}
+                  <input
+                    type="number"
+                    value={(paramsState[key] ?? '') as number | ''}
+                    onChange={(event) => handleParamChange(key, event.target.value)}
+                    style={{ padding: '0.45rem 0.55rem' }}
+                    disabled={!hasData || isSuggesting}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <button onClick={handleRun} disabled={!hasData || isRunning}>
-            {isRunning ? 'Running...' : 'Run with params'}
+            {isRunning ? 'Running...' : 'Run with parameters'}
           </button>
           <small style={{ color: '#6b7280' }}>Parameters left blank will be sent as null.</small>
         </div>

@@ -128,7 +128,9 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
         if (snapped) {
           setPeaks((prev) =>
             prev.map((peak, idx) =>
-              idx === draggingIndex ? { ...peak, time: snapped.point.x, value: snapped.point.y } : peak
+              idx === draggingIndex
+                ? { ...peak, time: snapped.point.x, value: snapped.point.y, source: 'manual' }
+                : peak
             )
           )
           setSelectedIndex(draggingIndex)

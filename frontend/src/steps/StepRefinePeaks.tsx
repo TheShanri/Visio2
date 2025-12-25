@@ -1,76 +1,111 @@
-import { Dispatch, SetStateAction } from 'react'
+import { Dispatch, SetStateAction, useMemo } from 'react'
 import { LineChart } from '../components/LineChart'
 import PeakEditorOverlay from '../components/PeakEditorOverlay'
 import { Peak } from '../types'
 import { Point } from '../lib/series'
 
 type StepRefinePeaksProps = {
-  scalePoints: Point[]
-  volumePoints: Point[]
   pressurePoints: Point[]
   peaks: Peak[]
+  autoPeaks: Peak[]
   setPeaks: Dispatch<SetStateAction<Peak[]>>
-  pressurePreview: { 'Elapsed Time': number; 'Bladder Pressure': number }[]
   onConfirmPeaks: () => void
   peaksConfirmed: boolean
 }
 
 export function StepRefinePeaks({
-  scalePoints,
-  volumePoints,
   pressurePoints,
   peaks,
+  autoPeaks,
   setPeaks,
-  pressurePreview,
   onConfirmPeaks,
   peaksConfirmed,
 }: StepRefinePeaksProps) {
+  const sortedPeaks = useMemo(() => [...peaks].sort((a, b) => a.time - b.time), [peaks])
+
+  const applyManualChange = (updater: SetStateAction<Peak[]>) => {
+    setPeaks((previous) => {
+      const next = typeof updater === 'function' ? (updater as (p: Peak[]) => Peak[])(previous) : updater
+      return next.map((peak) => ({ ...peak, source: 'manual' }))
+    })
+  }
+
+  const handleDelete = (index: number) => {
+    applyManualChange((prev) => prev.filter((_, idx) => idx !== index))
+  }
+
+  const handleClearManual = () => {
+    setPeaks(autoPeaks.map((peak) => ({ ...peak })))
+  }
+
   return (
-    <div>
-      <h2 style={{ marginTop: 0 }}>Refine Peaks</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
-        <LineChart title="Scale Over Time" points={scalePoints} xLabel="Elapsed Time (s)" yLabel="Scale" />
-        <LineChart title="Volume Over Time" points={volumePoints} xLabel="Elapsed Time (s)" yLabel="Tot Infused Vol" />
-        <div style={{ position: 'relative', height: 320 }}>
-          <LineChart
-            title="Pressure Over Time"
-            points={pressurePoints}
-            xLabel="Elapsed Time (s)"
-            yLabel="Bladder Pressure"
-            height={320}
-          />
-          <PeakEditorOverlay points={pressurePoints} peaks={peaks} setPeaks={setPeaks} height={320} />
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div>
+        <h2 style={{ marginTop: 0 }}>Refine Peaks</h2>
+        <p style={{ color: '#4b5563', marginTop: '0.35rem' }}>
+          Drag peaks to adjust their position, shift+click on the pressure chart to add new peaks, and press
+          delete/backspace to remove the selected marker. Use the list below to make precise edits.
+        </p>
       </div>
 
-      <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={onConfirmPeaks} disabled={peaksConfirmed}>
-          {peaksConfirmed ? 'Peaks confirmed' : 'Confirm peaks'}
+      <div style={{ position: 'relative', height: 420 }}>
+        <LineChart
+          title="Pressure with editable peaks"
+          points={pressurePoints}
+          xLabel="Elapsed Time (s)"
+          yLabel="Bladder Pressure"
+          height={420}
+          markers={sortedPeaks.map((peak, idx) => ({ x: peak.time, y: peak.value, label: `P${idx + 1}` }))}
+        />
+        <PeakEditorOverlay points={pressurePoints} peaks={peaks} setPeaks={applyManualChange} height={420} />
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+        <button type="button" onClick={handleClearManual} disabled={autoPeaks.length === 0}>
+          Clear manual edits
+        </button>
+        <button onClick={onConfirmPeaks} disabled={peaksConfirmed || peaks.length === 0}>
+          {peaksConfirmed ? 'Peaks confirmed' : 'Confirm Peaks'}
         </button>
         {peaksConfirmed && <span style={{ color: '#047857' }}>Peak list confirmed.</span>}
       </div>
 
-      <h3 style={{ marginTop: '2rem' }}>Pressure Preview (first 5 rows)</h3>
-      {pressurePreview.length === 0 ? (
-        <p>No pressure data available.</p>
-      ) : (
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead>
-            <tr>
-              <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>Elapsed Time</th>
-              <th style={{ border: '1px solid #ccc', padding: '0.5rem' }}>Bladder Pressure</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pressurePreview.map((row, index) => (
-              <tr key={`pressure-row-${index}`}>
-                <td style={{ border: '1px solid #ccc', padding: '0.5rem' }}>{row['Elapsed Time']}</td>
-                <td style={{ border: '1px solid #ccc', padding: '0.5rem' }}>{row['Bladder Pressure']}</td>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+          <h3 style={{ margin: 0 }}>Detected peaks</h3>
+          <span style={{ color: '#4b5563' }}>Edit the list to add or remove rows.</span>
+        </div>
+        {sortedPeaks.length === 0 ? (
+          <p style={{ color: '#6b7280' }}>No peaks detected yet.</p>
+        ) : (
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>#</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>Time</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>Value</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>Source</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {sortedPeaks.map((peak, idx) => (
+                <tr key={`peak-row-${idx}`}>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem', textAlign: 'center' }}>{idx + 1}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{peak.time.toFixed(2)}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>{peak.value.toFixed(2)}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem', textTransform: 'capitalize' }}>{peak.source}</td>
+                  <td style={{ border: '1px solid #e5e7eb', padding: '0.5rem' }}>
+                    <button type="button" onClick={() => handleDelete(idx)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }
