@@ -104,6 +104,50 @@ def _validate_peaks(peaks):
     return True
 
 
+def _validate_point_entries(entries):
+    if not isinstance(entries, list):
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False
+        if "time" not in entry or "value" not in entry:
+            return False
+        if entry["time"] is not None and not isinstance(entry["time"], (int, float)):
+            return False
+        if entry["value"] is not None and not isinstance(entry["value"], (int, float)):
+            return False
+        if "index" in entry and entry["index"] is not None and not isinstance(entry["index"], int):
+            return False
+    return True
+
+
+def _validate_points(points):
+    if points is None:
+        return True
+    if not isinstance(points, dict):
+        return False
+    for key in ["onset", "empty"]:
+        if key not in points:
+            return False
+        if not _validate_point_entries(points[key]):
+            return False
+    return True
+
+
+def _validate_segments(segments):
+    if segments is None:
+        return True
+    if not isinstance(segments, list):
+        return False
+    for segment in segments:
+        if not isinstance(segment, dict):
+            return False
+        metrics = segment.get("metrics")
+        if metrics is not None and not isinstance(metrics, dict):
+            return False
+    return True
+
+
 def _validate_segment_params(params):
     if params is None:
         return {}, None
@@ -258,13 +302,42 @@ def generate_report_route():
     payload = request.get_json(silent=True) or {}
     data = payload.get("data")
     peaks = payload.get("peaks")
+    points = payload.get("points")
+    segments = payload.get("segments")
+    peak_params_raw = payload.get("peakParams")
+    segment_params_raw = payload.get("segmentParams")
+    experiment_window = payload.get("experimentWindow")
 
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid or missing data"}), 400
     if peaks is not None and not isinstance(peaks, list):
         return jsonify({"error": "Peaks must be a list"}), 400
+    if peaks is not None and not _validate_peaks(peaks):
+        return jsonify({"error": "Invalid peaks format"}), 400
 
-    filename = create_report(data, peaks=peaks)
+    if not _validate_points(points):
+        return jsonify({"error": "Invalid points format"}), 400
+
+    if not _validate_segments(segments):
+        return jsonify({"error": "Invalid segments format"}), 400
+
+    peak_params, peak_error = _validate_peak_params(peak_params_raw)
+    if peak_error:
+        return jsonify({"error": peak_error}), 400
+
+    segment_params, seg_error = _validate_segment_params(segment_params_raw)
+    if seg_error:
+        return jsonify({"error": seg_error}), 400
+
+    filename = create_report(
+        data,
+        peaks=peaks,
+        points=points,
+        segments=segments,
+        peak_params=peak_params,
+        segment_params=segment_params,
+        experiment_window=experiment_window,
+    )
     download_url = f"/download/{filename}"
     return jsonify({"filename": filename, "download_url": download_url})
 
