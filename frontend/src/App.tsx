@@ -1,11 +1,12 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
-import { uploadFile, getApiBase, detectPeaks, generateReport } from './api'
-import { SessionData } from './types'
+import { uploadFile, getApiBase, generateReport } from './api'
+import { Peak, PeakParams, SessionData } from './types'
 import { LineChart } from './components/LineChart'
 import { SummaryCards } from './components/SummaryCards'
 import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/series'
 import TrimmerModal from './components/TrimmerModal'
 import { Interval, filterRowsByIntervals } from './lib/trimming'
+import PeakPanel from './components/PeakPanel'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -17,8 +18,8 @@ function App() {
   const [isTrimmerOpen, setIsTrimmerOpen] = useState<boolean>(false)
   const [trims, setTrims] = useState<Interval[]>([])
   const [pending, setPending] = useState<{ start?: number; end?: number }>({})
-  const [peaks, setPeaks] = useState<{ time: number; value: number }[]>([])
-  const [isDetectingPeaks, setIsDetectingPeaks] = useState<boolean>(false)
+  const [peaks, setPeaks] = useState<Peak[]>([])
+  const [peakParams, setPeakParams] = useState<PeakParams | null>(null)
   const [isExporting, setIsExporting] = useState<boolean>(false)
   const [actionStatus, setActionStatus] = useState<string>('')
 
@@ -85,6 +86,7 @@ function App() {
   useEffect(() => {
     if (!originalData) {
       setCurrentData(null)
+      setPeakParams(null)
       setPeaks([])
       return
     }
@@ -95,6 +97,7 @@ function App() {
         volume: originalData.volume.map((row) => ({ ...row })),
         pressure: originalData.pressure.map((row) => ({ ...row })),
       })
+      setPeakParams(null)
       setPeaks([])
       return
     }
@@ -104,6 +107,7 @@ function App() {
       volume: filterRowsByIntervals(originalData.volume, 'Elapsed Time', trims),
       pressure: filterRowsByIntervals(originalData.pressure, 'Elapsed Time', trims),
     })
+    setPeakParams(null)
     setPeaks([])
   }, [originalData, trims])
 
@@ -148,22 +152,6 @@ function App() {
   const handleRestore = () => {
     setTrims([])
     setPending({})
-  }
-
-  const handleDetectPeaks = async () => {
-    if (!currentData) return
-    setIsDetectingPeaks(true)
-    setActionStatus('Detecting peaks...')
-
-    try {
-      const detected = await detectPeaks(currentData.pressure)
-      setPeaks(detected)
-      setActionStatus(`Detected ${detected.length} peaks`)
-    } catch (err) {
-      setActionStatus(`Peak detection failed: ${(err as Error).message}`)
-    } finally {
-      setIsDetectingPeaks(false)
-    }
   }
 
   const handleExportReport = async () => {
@@ -217,15 +205,20 @@ function App() {
 
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
             <button onClick={() => setIsTrimmerOpen(true)}>Open trimmer</button>
-            <button onClick={handleDetectPeaks} disabled={isDetectingPeaks}>
-              {isDetectingPeaks ? 'Detecting...' : 'Detect peaks'}
-            </button>
             <button onClick={handleExportReport} disabled={isExporting}>
               {isExporting ? 'Exporting...' : 'Export report (XLSX)'}
             </button>
           </div>
 
           <SummaryCards duration={duration} maxPressure={maxPressure} finalVolume={finalVolume} />
+
+          <PeakPanel
+            pressureRows={currentData.pressure}
+            params={peakParams}
+            setParams={setPeakParams}
+            peaks={peaks}
+            setPeaks={setPeaks}
+          />
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
             <LineChart title="Scale Over Time" points={scalePoints} xLabel="Elapsed Time (s)" yLabel="Scale" />
@@ -235,7 +228,7 @@ function App() {
               points={pressurePoints}
               xLabel="Elapsed Time (s)"
               yLabel="Bladder Pressure"
-              markers={peaks.map((peak, idx) => ({ x: peak.time, y: peak.value, label: `P${idx + 1}` }))}
+              markers={peaks.map((peak, idx) => ({ x: peak.time, y: peak.value, label: `P${(peak.index ?? idx) + 1}` }))}
             />
           </div>
 
