@@ -224,6 +224,11 @@ function App() {
     return toPoints(processedData.pressure, 'Elapsed Time', 'Bladder Pressure')
   }, [processedData])
 
+  const scalePoints = useMemo(() => {
+    if (!processedData) return []
+    return toPoints(processedData.scale, 'Elapsed Time', 'Scale')
+  }, [processedData])
+
 
   const handleApplyPending = () => {
     if (pending.start === undefined || pending.end === undefined) return
@@ -386,6 +391,7 @@ function App() {
       return (
         <StepRefinePeaks
           pressurePoints={pressurePoints}
+          scalePoints={scalePoints}
           peaks={peaks}
           autoPeaks={autoPeaks}
           setPeaks={setPeaks}

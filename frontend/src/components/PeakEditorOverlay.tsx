@@ -9,6 +9,8 @@ type PeakEditorOverlayProps = {
   setPeaks: Dispatch<SetStateAction<Peak[]>>
   height?: number
   windowSec?: number
+  selectedIndex: number | null
+  onSelect: (index: number | null) => void
 }
 
 type Scale = {
@@ -44,10 +46,17 @@ function createScales(points: Point[], width: number, height: number): Scale | n
   return { x, y, invertX }
 }
 
-export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windowSec = 10 }: PeakEditorOverlayProps) {
+export function PeakEditorOverlay({
+  points,
+  peaks,
+  setPeaks,
+  height = 280,
+  windowSec = 10,
+  selectedIndex,
+  onSelect,
+}: PeakEditorOverlayProps) {
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState<number>(640)
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null)
 
@@ -89,7 +98,7 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
 
   const handleBackgroundPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!event.shiftKey) {
-      setSelectedIndex(null)
+      onSelect(null)
       return
     }
     if (!scales) return
@@ -103,13 +112,13 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIndex !== null) {
         setPeaks((prev) => prev.filter((_, idx) => idx !== selectedIndex))
-        setSelectedIndex(null)
+        onSelect(null)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedIndex, setPeaks])
+  }, [selectedIndex, setPeaks, onSelect])
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -133,7 +142,7 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
                 : peak
             )
           )
-          setSelectedIndex(draggingIndex)
+          onSelect(draggingIndex)
         }
       }
       setDraggingIndex(null)
@@ -147,7 +156,7 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
     }
-  }, [draggingIndex, points, setPeaks, windowSec, clientToDataX])
+  }, [draggingIndex, points, setPeaks, windowSec, clientToDataX, onSelect])
 
   if (!scales) return null
 
@@ -168,7 +177,7 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
             key={`peak-marker-${idx}-${peak.time}`}
             onPointerDown={(event) => {
               event.stopPropagation()
-              setSelectedIndex(idx)
+              onSelect(idx)
               setDraggingIndex(idx)
             }}
             style={{
@@ -203,38 +212,6 @@ export function PeakEditorOverlay({ points, peaks, setPeaks, height = 280, windo
           }}
         />
       )}
-
-      <div
-        style={{
-          position: 'absolute',
-          top: margin.top,
-          right: margin.right,
-          background: 'rgba(255,255,255,0.9)',
-          padding: '0.4rem 0.5rem',
-          borderRadius: 6,
-          border: '1px solid #e5e7eb',
-          display: 'flex',
-          gap: '0.5rem',
-          alignItems: 'center',
-          pointerEvents: 'auto',
-        }}
-      >
-        <span style={{ fontSize: '0.85rem', color: '#374151' }}>
-          Shift+Click to add, Drag to move, Click+Delete to remove
-        </span>
-        {selectedIndex !== null && (
-          <button
-            style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem' }}
-            onClick={(event) => {
-              event.stopPropagation()
-              setPeaks((prev) => prev.filter((_, idx) => idx !== selectedIndex))
-              setSelectedIndex(null)
-            }}
-          >
-            Remove
-          </button>
-        )}
-      </div>
     </div>
   )
 }
