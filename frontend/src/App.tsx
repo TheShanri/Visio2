@@ -7,6 +7,7 @@ import { computeDuration, computeFinalY, computeMaxY, toPoints } from './lib/ser
 import TrimmerModal from './components/TrimmerModal'
 import { Interval, filterRowsByIntervals } from './lib/trimming'
 import PeakPanel from './components/PeakPanel'
+import PeakEditorOverlay from './components/PeakEditorOverlay'
 
 function App() {
   const [status, setStatus] = useState<string>('Checking health...')
@@ -223,13 +224,16 @@ function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
             <LineChart title="Scale Over Time" points={scalePoints} xLabel="Elapsed Time (s)" yLabel="Scale" />
             <LineChart title="Volume Over Time" points={volumePoints} xLabel="Elapsed Time (s)" yLabel="Tot Infused Vol" />
-            <LineChart
-              title="Pressure Over Time"
-              points={pressurePoints}
-              xLabel="Elapsed Time (s)"
-              yLabel="Bladder Pressure"
-              markers={peaks.map((peak, idx) => ({ x: peak.time, y: peak.value, label: `P${(peak.index ?? idx) + 1}` }))}
-            />
+            <div style={{ position: 'relative', height: 320 }}>
+              <LineChart
+                title="Pressure Over Time"
+                points={pressurePoints}
+                xLabel="Elapsed Time (s)"
+                yLabel="Bladder Pressure"
+                height={320}
+              />
+              <PeakEditorOverlay points={pressurePoints} peaks={peaks} setPeaks={setPeaks} height={320} />
+            </div>
           </div>
 
           <h3 style={{ marginTop: '2rem' }}>Pressure Preview (first 5 rows)</h3>
